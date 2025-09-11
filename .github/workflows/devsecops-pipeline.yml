@@ -1,0 +1,487 @@
+name: DevSecOps Security Pipeline
+
+# Kapan robot ini bekerja?
+on:
+  # Setiap ada push ke branch main
+  push:
+    branches: [ main ]
+  # Setiap ada pull request ke main
+  pull_request:
+    branches: [ main ]
+  # Bisa jalan manual juga
+  workflow_dispatch:
+
+# Pengaturan keamanan
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # JOB 1: PERSIAPAN
+  prepare:
+    name: "🚀 Persiapan Pipeline"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm install
+
+  # JOB 2: SECRET SCANNING
+  secret-scan:
+    name: "🔍 Secret Scanning"
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run TruffleHog Secret Scanner
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+          
+      - name: Run GitLeaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          config: .gitleaks.toml
+          
+      - name: Upload Secret Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: secret-scan-results
+          path: |
+            gitleaks-report.json
+            trufflehog-results.json
+
+  # JOB 3: SOFTWARE COMPOSITION ANALYSIS (SCA)
+  sca-scan:
+    name: "📚 SCA - Dependency Scanning"
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level=high --json > npm-audit-report.json || true
+          npm audit --audit-level=high > npm-audit-report.txt || true
+          
+      - name: Run Snyk Security Scanner
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --json > snyk-report.json
+          
+      - name: Run Safety Scanner (Python deps)
+        run: |
+          pip install safety
+          safety check --json > safety-report.json || true
+          
+      - name: Upload SCA Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sca-scan-results
+          path: |
+            npm-audit-report.json
+            npm-audit-report.txt
+            snyk-report.json
+            safety-report.json
+
+  # JOB 4: STATIC APPLICATION SECURITY TESTING (SAST)
+  sast-scan:
+    name: "🔬 SAST - Code Analysis"
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+          
+      - name: Run CodeQL Scanning
+        uses: github/codeql-action/analyze@v3
+        
+      - name: Run ESLint Security Scanner
+        run: |
+          npm install -g eslint eslint-plugin-security
+          eslint . --ext .js,.jsx,.ts,.tsx --format json > eslint-security-report.json || true
+          
+      - name: Run Semgrep SAST Scanner
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+          generateSarif: "1"
+          
+      - name: Upload SAST Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-scan-results
+          path: |
+            eslint-security-report.json
+            semgrep.sarif
+            results.sarif
+
+  # JOB 5: MISCONFIGURATION SCANNING
+  config-scan:
+    name: "⚙️ Configuration Scanning"
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Checkov IaC Scanner
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,kubernetes,yaml
+          output_format: json
+          output_file_path: checkov-report.json
+          
+      - name: Run Hadolint Dockerfile Scanner
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: json
+          output-file: hadolint-report.json
+          
+      - name: Run Kube-score (if K8s manifests exist)
+        run: |
+          if find . -name "*.yaml" -o -name "*.yml" | grep -E "(k8s|kube|kubernetes)" > /dev/null; then
+            curl -L https://github.com/zegl/kube-score/releases/latest/download/kube-score_linux_amd64.tar.gz | tar xz
+            ./kube-score score k8s/*.yaml --output-format json > kube-score-report.json || true
+          fi
+          
+      - name: Upload Config Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: config-scan-results
+          path: |
+            checkov-report.json
+            hadolint-report.json
+            kube-score-report.json
+
+  # JOB 6: BUILD & PREPARE FOR DAST
+  build-app:
+    name: "🏗️ Build Application"
+    runs-on: ubuntu-latest
+    needs: [secret-scan, sca-scan, sast-scan, config-scan]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build application
+        run: npm run build || echo "No build script found"
+        
+      - name: Start application for DAST
+        run: |
+          npm start &
+          sleep 30  # Tunggu app siap
+          echo "Application started on port 3000"
+        env:
+          NODE_ENV: test
+          
+      - name: Wait for application
+        run: |
+          timeout 60s bash -c 'until curl -f http://localhost:3000 > /dev/null 2>&1; do sleep 2; done'
+
+  # JOB 7: DYNAMIC APPLICATION SECURITY TESTING (DAST)
+  dast-scan:
+    name: "🎯 DAST - Runtime Testing"
+    runs-on: ubuntu-latest
+    needs: build-app
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js & Start App
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          
+      - name: Install and Start Application
+        run: |
+          npm install
+          npm start &
+          sleep 30
+          
+      - name: Run OWASP ZAP DAST Scanner
+        uses: zaproxy/action-full-scan@v0.8.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -j -m 10 -T 60'
+          
+      - name: Run Nuclei DAST Scanner
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: 'http://localhost:3000'
+          output: 'nuclei-report.json'
+          templates: 'vulnerabilities/'
+          
+      - name: Upload DAST Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dast-scan-results
+          path: |
+            report_html.html
+            report_json.json
+            nuclei-report.json
+
+  # JOB 8: ANALYZE RESULTS & SEND NOTIFICATIONS
+  analyze-and-notify:
+    name: "📊 Analyze Results & Send Alerts"
+    runs-on: ubuntu-latest
+    needs: [secret-scan, sca-scan, sast-scan, config-scan, dast-scan]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download All Scan Results
+        uses: actions/download-artifact@v4
+        with:
+          path: scan-results
+          
+      - name: Install jq for JSON processing
+        run: sudo apt-get update && sudo apt-get install -y jq
+        
+      - name: Analyze Critical Vulnerabilities
+        id: analyze
+        run: |
+          echo "🔍 Analyzing scan results for critical vulnerabilities..."
+          
+          CRITICAL_FOUND=false
+          HIGH_FOUND=false
+          TOTAL_CRITICAL=0
+          TOTAL_HIGH=0
+          SUMMARY=""
+          
+          # Analyze npm audit results
+          if [ -f "scan-results/sca-scan-results/npm-audit-report.json" ]; then
+            CRITICAL_NPM=$(jq -r '.vulnerabilities | to_entries[] | select(.value.severity=="critical") | .key' scan-results/sca-scan-results/npm-audit-report.json | wc -l)
+            HIGH_NPM=$(jq -r '.vulnerabilities | to_entries[] | select(.value.severity=="high") | .key' scan-results/sca-scan-results/npm-audit-report.json | wc -l)
+            TOTAL_CRITICAL=$((TOTAL_CRITICAL + CRITICAL_NPM))
+            TOTAL_HIGH=$((TOTAL_HIGH + HIGH_NPM))
+            if [ $CRITICAL_NPM -gt 0 ]; then CRITICAL_FOUND=true; fi
+            if [ $HIGH_NPM -gt 0 ]; then HIGH_FOUND=true; fi
+            SUMMARY="${SUMMARY}\n📚 Dependencies: ${CRITICAL_NPM} Critical, ${HIGH_NPM} High"
+          fi
+          
+          # Analyze DAST results
+          if [ -f "scan-results/dast-scan-results/report_json.json" ]; then
+            CRITICAL_DAST=$(jq -r '.site[0].alerts[] | select(.riskdesc | contains("High") or contains("Critical")) | .name' scan-results/dast-scan-results/report_json.json | wc -l)
+            TOTAL_CRITICAL=$((TOTAL_CRITICAL + CRITICAL_DAST))
+            if [ $CRITICAL_DAST -gt 0 ]; then CRITICAL_FOUND=true; fi
+            SUMMARY="${SUMMARY}\n🎯 DAST Scan: ${CRITICAL_DAST} Critical/High issues"
+          fi
+          
+          # Set outputs
+          echo "critical_found=$CRITICAL_FOUND" >> $GITHUB_OUTPUT
+          echo "high_found=$HIGH_FOUND" >> $GITHUB_OUTPUT
+          echo "total_critical=$TOTAL_CRITICAL" >> $GITHUB_OUTPUT
+          echo "total_high=$TOTAL_HIGH" >> $GITHUB_OUTPUT
+          echo "summary<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$SUMMARY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Create consolidated report
+          cat > security-report.md << EOF
+          # 🛡️ Security Scan Report
+          
+          **Repository:** ${{ github.repository }}
+          **Branch:** ${{ github.ref_name }}
+          **Commit:** ${{ github.sha }}
+          **Scan Date:** $(date)
+          
+          ## 📊 Summary
+          - **Critical Vulnerabilities:** $TOTAL_CRITICAL
+          - **High Vulnerabilities:** $TOTAL_HIGH
+          
+          ## 🔍 Detailed Findings
+          $SUMMARY
+          
+          ## 📁 Scan Artifacts
+          - Secret Scanning Results
+          - SCA (Dependency) Analysis
+          - SAST (Code Analysis) Results  
+          - Configuration Scanning
+          - DAST (Runtime Testing) Results
+          
+          ---
+          *Generated by DevSecOps Pipeline*
+          EOF
+        
+      - name: Send Discord Notification (Critical)
+        if: steps.analyze.outputs.critical_found == 'true'
+        uses: Ilshidur/action-discord@master
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            🚨 **CRITICAL SECURITY ALERT** 🚨
+            
+            **Repository:** ${{ github.repository }}
+            **Branch:** ${{ github.ref_name }}
+            **Critical Issues Found:** ${{ steps.analyze.outputs.total_critical }}
+            **High Issues Found:** ${{ steps.analyze.outputs.total_high }}
+            
+            ${{ steps.analyze.outputs.summary }}
+            
+            🔗 **Pipeline:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ⚡ **Action Required:** Please review and fix these security issues immediately!
+            
+      - name: Send Slack Notification (Critical)  
+        if: steps.analyze.outputs.critical_found == 'true'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          custom_payload: |
+            {
+              "text": "🚨 Critical Security Vulnerabilities Found!",
+              "attachments": [
+                {
+                  "color": "danger",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Critical Issues",
+                      "value": "${{ steps.analyze.outputs.total_critical }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Pipeline",
+                      "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>",
+                      "short": false
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          
+      - name: Create GitHub Issue for Critical Findings
+        if: steps.analyze.outputs.critical_found == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Critical Security Vulnerabilities Found - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            # Critical Security Alert
+            
+            Our automated security pipeline has detected **${{ steps.analyze.outputs.total_critical }}** critical vulnerabilities.
+            
+            ## Summary
+            ${{ steps.analyze.outputs.summary }}
+            
+            ## Action Required
+            - [ ] Review security scan results
+            - [ ] Fix critical vulnerabilities  
+            - [ ] Update dependencies
+            - [ ] Re-run security pipeline
+            
+            ## Pipeline Details
+            - **Run ID:** ${{ github.run_id }}
+            - **Commit:** ${{ github.sha }}
+            - **Branch:** ${{ github.ref_name }}
+            
+            🔗 [View Pipeline Results](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'critical', 'urgent']
+            });
+          
+      - name: Upload Final Security Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: final-security-report
+          path: |
+            security-report.md
+            scan-results/
+          retention-days: 30
+          
+      - name: Comment on PR (if PR triggered)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('security-report.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🛡️ Security Scan Results\n\n${report}`
+            });
+
+  # JOB 9: SECURITY GATE CHECK
+  security-gate:
+    name: "🚪 Security Gate Check"
+    runs-on: ubuntu-latest
+    needs: analyze-and-notify
+    if: always()
+    steps:
+      - name: Security Gate Decision
+        run: |
+          if [ "${{ needs.analyze-and-notify.outputs.critical_found }}" == "true" ]; then
+            echo "❌ Security Gate: FAILED - Critical vulnerabilities found!"
+            echo "🚫 Deployment blocked due to security issues"
+            exit 1
+          else
+            echo "✅ Security Gate: PASSED - No critical vulnerabilities found"
+            echo "🎉 Safe to proceed with deployment"
+          fi
