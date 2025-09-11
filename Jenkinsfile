@@ -12,19 +12,25 @@ pipeline {
             }
         }
 
-        stage('SCA - Snyk Test (Python)') {
+        stage('SCA - Snyk Docker Image') {
             agent {
                 docker {
-                    image 'snyk/snyk:python'
-                    args '--user root --network host --env SNYK_TOKEN=$SNYK_CREDENTIALS_PSW --entrypoint='
+                    image 'snyk/snyk:docker'
+                    args '--user root --network host -v /var/run/docker.sock:/var/run/docker.sock --env SNYK_TOKEN=$SNYK_CREDENTIALS_PSW --entrypoint='
                 }
             }
             steps {
                 catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                    sh 'snyk test --file=requirements.txt --json > snyk-scan-report.json'
+                    sh '''
+                        echo "🔨 Building Docker image vuln-bank:latest..."
+                        docker build -t vuln-bank:latest .
+
+                        echo "🔎 Running Snyk Docker scan..."
+                        snyk test --docker vuln-bank:latest --json > snyk-sca-docker-report.json
+                    '''
                 }
-                sh 'cat snyk-scan-report.json'
-                archiveArtifacts artifacts: 'snyk-scan-report.json'
+                sh 'cat snyk-sca-docker-report.json || true'
+                archiveArtifacts artifacts: 'snyk-sca-docker-report.json'
             }
         }
     }
@@ -32,12 +38,11 @@ pipeline {
     post {
         always {
             script {
-                def critical = sh(
-                    script: "grep -i 'CRITICAL' snyk-scan-report.json || true",
-                    returnStatus: true
-                )
+                def critical = sh(script: "grep -i 'critical' snyk-sca-docker-report.json || true", returnStatus: true)
                 if (critical == 0) {
                     echo "⚠️ CRITICAL vulnerability found in Vuln Bank pipeline build #${env.BUILD_NUMBER}"
+                } else {
+                    echo "✅ No CRITICAL vulnerabilities detected in this build."
                 }
             }
         }
