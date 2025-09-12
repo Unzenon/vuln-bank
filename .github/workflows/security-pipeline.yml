@@ -1,0 +1,78 @@
+name: 🔐 DevSecOps Security Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security-scan:
+    name: 🛡️ Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      # SECRET SCANNING
+      - name: 🕵️ Secret Scanning with GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # SCA SCANNING
+      - name: 📦 Install Safety for SCA
+        run: |
+          pip install safety
+
+      - name: 🔍 SCA - Software Composition Analysis
+        run: |
+          echo "🔍 Running SCA Scanning..."
+          safety check --file requirements.txt --output text > sca-results.txt || true
+          cat sca-results.txt
+
+      # SAVE REPORTS
+      - name: 📄 Upload Security Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            results.json
+            sca-results.txt
+
+      # CHECK FOR CRITICAL VULNERABILITIES
+      - name: 🚨 Check for Critical Issues
+        run: |
+          echo "Checking for critical vulnerabilities..."
+
+          # Check GitLeaks results
+          if [ -f "results.json" ] && [ -s "results.json" ]; then
+            echo "❌ CRITICAL: Secrets detected!"
+            echo "secrets=true" >> $GITHUB_ENV
+          fi
+
+          # Check SCA results
+          if grep -q "vulnerabilities reported" sca-results.txt; then
+            VULN_COUNT=$(grep -o "[0-9]\+ vulnerabilities reported" sca-results.txt | head -1 | grep -o "^[0-9]\+")
+            if [ "$VULN_COUNT" -gt 0 ]; then
+              echo "❌ CRITICAL: $VULN_COUNT vulnerabilities found in dependencies!"
+              echo "vulnerabilities=true" >> $GITHUB_ENV
+            fi
+          fi
+
+      # FAIL IF CRITICAL ISSUES FOUND
+      - name: ⚠️ Fail Build on Critical Issues
+        if: env.secrets == 'true' || env.vulnerabilities == 'true'
+        run: |
+          echo "🚨 BUILD FAILED: Critical security issues detected!"
+          echo "🔍 Check the artifacts for detailed reports"
+          exit 1
