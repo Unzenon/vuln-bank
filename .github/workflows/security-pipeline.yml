@@ -51,6 +51,23 @@ jobs:
           bandit -r . -ll > sast-summary.txt 2>&1 || true
           echo "SAST scan completed"
 
+      # MISCONFIGURATION SCANNING
+      - name: 🔧 Install Trivy for Misconfiguration Scanning
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install trivy jq -y
+
+      - name: 🔧 Misconfiguration Scanning
+        run: |
+          echo "🔧 Running Misconfiguration Scanning..."
+          trivy config . --format json --output misconfig-results.json --quiet
+          trivy config . --format table > misconfig-summary.txt 2>&1
+          echo "Misconfiguration scan completed"
+
       # SAVE REPORTS
       - name: 📄 Upload Security Reports
         uses: actions/upload-artifact@v4
@@ -62,6 +79,8 @@ jobs:
             sca-results.txt
             sast-results.json
             sast-summary.txt
+            misconfig-results.json
+            misconfig-summary.txt
 
       # CHECK FOR CRITICAL VULNERABILITIES
       - name: 🚨 Check for Critical Issues
@@ -92,9 +111,21 @@ jobs:
             fi
           fi
 
-      # FAIL IF CRITICAL ISSUES FOUND (UPDATE INI)
+          # Check Misconfiguration results
+          if [ -f "misconfig-results.json" ]; then
+            CRITICAL_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' 2>/dev/null | wc -l)
+            HIGH_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' 2>/dev/null | wc -l)
+            TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
+            
+            if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
+              echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
+              echo "misconfig_critical=true" >> $GITHUB_ENV
+            fi
+          fi
+
+      # FAIL IF CRITICAL ISSUES FOUND
       - name: ⚠️ Fail Build on Critical Issues
-        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true'
+        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.misconfig_critical == 'true'
         run: |
           echo "🚨 BUILD FAILED: Critical security issues detected!"
           echo "🔍 Check the artifacts for detailed reports"
