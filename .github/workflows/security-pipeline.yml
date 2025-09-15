@@ -39,6 +39,18 @@ jobs:
           safety check --file requirements.txt --output text > sca-results.txt || true
           cat sca-results.txt
 
+      # SAST SCANNING
+      - name: 🛡️ Install Bandit for SAST
+        run: |
+          pip install bandit
+
+      - name: 🔍 SAST - Static Application Security Testing
+        run: |
+          echo "🛡️ Running SAST Scanning..."
+          bandit -r . -f json -o sast-results.json || true
+          bandit -r . -ll > sast-summary.txt 2>&1 || true
+          echo "SAST scan completed"
+
       # SAVE REPORTS
       - name: 📄 Upload Security Reports
         uses: actions/upload-artifact@v4
@@ -48,6 +60,8 @@ jobs:
           path: |
             results.json
             sca-results.txt
+            sast-results.json
+            sast-summary.txt
 
       # CHECK FOR CRITICAL VULNERABILITIES
       - name: 🚨 Check for Critical Issues
@@ -69,9 +83,18 @@ jobs:
             fi
           fi
 
-      # FAIL IF CRITICAL ISSUES FOUND
+          # Check SAST results
+          if [ -f "sast-summary.txt" ]; then
+            HIGH_SAST=$(grep -c "Severity: High" sast-summary.txt || echo "0")
+            if [ "$HIGH_SAST" -gt 0 ]; then
+              echo "❌ CRITICAL: $HIGH_SAST high severity SAST issues found!"
+              echo "sast_critical=true" >> $GITHUB_ENV
+            fi
+          fi
+
+      # FAIL IF CRITICAL ISSUES FOUND (UPDATE INI)
       - name: ⚠️ Fail Build on Critical Issues
-        if: env.secrets == 'true' || env.vulnerabilities == 'true'
+        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true'
         run: |
           echo "🚨 BUILD FAILED: Critical security issues detected!"
           echo "🔍 Check the artifacts for detailed reports"
