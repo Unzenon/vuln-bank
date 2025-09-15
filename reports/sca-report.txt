@@ -1,0 +1,264 @@
+
+
+[33m[1m+===========================================================================================================================================================================================+[0m
+
+
+[31m[1mDEPRECATED: [0m[33m[1mthis command (`check`) has been DEPRECATED, and will be unsupported beyond 01 June 2024.[0m
+
+
+[32mWe highly encourage switching to the new [0m[32m[1m`scan`[0m[32m command which is easier to use, more powerful, and can be set up to mimic the deprecated command if required.[0m
+
+
+[33m[1m+===========================================================================================================================================================================================+[0m
+
+
++==============================================================================+
+
+                               /$$$$$$            /$$
+                              /$$__  $$          | $$
+           /$$$$$$$  /$$$$$$ | $$  \__//$$$$$$  /$$$$$$   /$$   /$$
+          /$$_____/ |____  $$| $$$$   /$$__  $$|_  $$_/  | $$  | $$
+         |  $$$$$$   /$$$$$$$| $$_/  | $$$$$$$$  | $$    | $$  | $$
+          \____  $$ /$$__  $$| $$    | $$_____/  | $$ /$$| $$  | $$
+          /$$$$$$$/|  $$$$$$$| $$    |  $$$$$$$  |  $$$$/|  $$$$$$$
+         |_______/  \_______/|__/     \_______/   \___/   \____  $$
+                                                          /$$  | $$
+                                                         |  $$$$$$/
+  by safetycli.com                                        \______/
+
++==============================================================================+
+
+ [1mREPORT[0m 
+
+  Safety [1mv3.6.1[0m is scanning for [1mVulnerabilities[0m[1m...[0m
+[1m  Scanning dependencies[0m in your [1mfiles:[0m
+
+  -> requirements.txt
+
+  Using [1mopen-source vulnerability database[0m
+[1m  Found and scanned 8 packages[0m
+  Timestamp [1m2025-09-15 09:03:55[0m
+[1m  16[0m[1m vulnerabilities reported[0m
+[1m  0[0m[1m vulnerabilities ignored[0m
+
++==============================================================================+
+ [1mVULNERABILITIES REPORTED[0m 
++==============================================================================+
+
+[31m-> Vulnerability found in requests version 2.31.0[0m
+[1m   Vulnerability ID: [0m77680
+[1m   Affected spec: [0m<2.32.4
+[1m   ADVISORY: [0mRequests is an HTTP library. Due to a URL parsing issue,
+   Requests releases prior to 2.32.4 may leak .netrc credentials to third...
+[1m   CVE-2024-47081[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/77680/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 77680 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in requests version 2.31.0[0m
+[1m   Vulnerability ID: [0m71064
+[1m   Affected spec: [0m<2.32.2
+[1m   ADVISORY: [0mAffected versions of Requests, when making requests
+   through a Requests `Session`, if the first request is made with...
+[1m   CVE-2024-35195[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/71064/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 71064 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0[0m
+[1m   Vulnerability ID: [0m76242
+[1m   Affected spec: [0m<4.0.1
+[1m   ADVISORY: [0mAffected versions of the flask-cors package are
+   vulnerable to Improper Input Validation due to inconsistent URL path...
+[1m   CVE-2024-6844[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/76242/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 76242 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0[0m
+[1m   Vulnerability ID: [0m76241
+[1m   Affected spec: [0m<4.0.1
+[1m   ADVISORY: [0mAffected versions of the flask-cors package are
+   vulnerable to Improper Input Validation due to flawed regex pattern...
+[1m   CVE-2024-6839[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/76241/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 76241 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0[0m
+[1m   Vulnerability ID: [0m76237
+[1m   Affected spec: [0m<4.0.1
+[1m   ADVISORY: [0mAffected versions of the flask‑cors package are
+   vulnerable to Improper Handling of Case Sensitivity due to...
+[1m   CVE-2024-6866[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/76237/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 76237 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0[0m
+[1m   Vulnerability ID: [0m70624
+[1m   Affected spec: [0m<4.0.1
+[1m   ADVISORY: [0mAffected versions of the flask-cors package are
+   vulnerable to Improper Output Neutralization for Logs due to...
+[1m   CVE-2024-1681[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/70624/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 70624 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in flask-cors version 4.0.0[0m
+[1m   Vulnerability ID: [0m72731
+[1m   Affected spec: [0m<4.0.2
+[1m   ADVISORY: [0mA vulnerability in corydolphin/flask-cors version 4.0.1
+   allows the `Access-Control-Allow-Private-Network` CORS header to be set...
+[1m   CVE-2024-6221[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/72731/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 72731 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in pyjwt version 2.4.0[0m
+[1m   Vulnerability ID: [0m74429
+[1m   Affected spec: [0m<2.10.1
+[1m   ADVISORY: [0mAffected versions of pyjwt are vulnerable to Partial
+   Comparison (CWE-187). This flaw allows attackers to bypass issuer (iss)...
+[1m   CVE-2024-53861[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/74429/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 74429 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m71595
+[1m   Affected spec: [0m<=2.3.7
+[1m   ADVISORY: [0mWerkzeug is a comprehensive WSGI web application
+   library. If an upload of a file that starts with CR or LF and then is...
+[1m   CVE-2023-46136[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/71595/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 71595 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m71594
+[1m   Affected spec: [0m<3.0.3
+[1m   ADVISORY: [0mWerkzeug is a comprehensive WSGI web application
+   library. The debugger in affected versions of Werkzeug can allow an...
+[1m   CVE-2024-34069[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/71594/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 71594 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m62019
+[1m   Affected spec: [0m<2.3.8
+[1m   ADVISORY: [0mWerkzeug 3.0.1 and 2.3.8 include a security fix: Slow
+   multipart parsing for large parts potentially enabling DoS...
+[1m   PVE-2023-62019[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/62019/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 62019 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m73969
+[1m   Affected spec: [0m<3.0.6
+[1m   ADVISORY: [0mAffected versions of Werkzeug are vulnerable to Path
+   Traversal (CWE-22) on Windows systems running Python versions below...
+[1m   CVE-2024-49766[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/73969/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 73969 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m73889
+[1m   Affected spec: [0m<3.0.6
+[1m   ADVISORY: [0mAffected versions of Werkzeug are potentially vulnerable
+   to resource exhaustion when parsing file data in forms. Applications...
+[1m   CVE-2024-49767[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/73889/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 73889 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m53326
+[1m   Affected spec: [0m<2.2.3
+[1m   ADVISORY: [0mWerkzeug 2.2.3 includes a fix for CVE-2023-23934:
+   Browsers may allow "nameless" cookies that look like '=value' instead...
+[1m   CVE-2023-23934[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/53326/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 53326 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in werkzeug version 2.0.1[0m
+[1m   Vulnerability ID: [0m53325
+[1m   Affected spec: [0m<2.2.3
+[1m   ADVISORY: [0mWerkzeug 2.2.3 includes a fix for CVE-2023-25577: Prior
+   to version 2.2.3, Werkzeug's multipart form data parser will parse an...
+[1m   CVE-2023-25577[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/53325/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 53325 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
+[31m-> Vulnerability found in flask version 2.0.1[0m
+[1m   Vulnerability ID: [0m55261
+[1m   Affected spec: [0m<2.2.5
+[1m   ADVISORY: [0mFlask 2.2.5 and 2.3.2 include a fix for CVE-2023-30861:
+   When all of the following conditions are met, a response containing...
+[1m   CVE-2023-30861[0m
+[1m   For more information about this vulnerability, visit
+   [0mhttps://data.safetycli.com/v/55261/97c[0m
+   To ignore this vulnerability, use PyUp vulnerability id 55261 in safety’s
+   ignore command-line argument or add the ignore to your safety policy file.
+
+
++==============================================================================+
+   [32m[1mREMEDIATIONS[0m
+
+  16 vulnerabilities were reported in 5 packages. For detailed remediation & 
+  fix recommendations, upgrade to a commercial license. 
+
++==============================================================================+
+
+ Scan was completed. 16 vulnerabilities were reported. 
+
++==============================================================================+[0m
+
+
+[33m[1m+===========================================================================================================================================================================================+[0m
+
+
+[31m[1mDEPRECATED: [0m[33m[1mthis command (`check`) has been DEPRECATED, and will be unsupported beyond 01 June 2024.[0m
+
+
+[32mWe highly encourage switching to the new [0m[32m[1m`scan`[0m[32m command which is easier to use, more powerful, and can be set up to mimic the deprecated command if required.[0m
+
+
+[33m[1m+===========================================================================================================================================================================================+[0m
+
+
