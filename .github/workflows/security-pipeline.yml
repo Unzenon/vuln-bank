@@ -16,9 +16,9 @@ jobs:
       postgres:
         image: postgres:13
         env:
-          POSTGRES_USER: vulnbank
-          POSTGRES_PASSWORD: password123
-          POSTGRES_DB: vulnbank
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vulnerable_bank
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -70,15 +70,17 @@ jobs:
       # DAST SCANNING
       - name: 🚀 Start Application for DAST
         env:
-          DATABASE_URL: postgresql://vulnbank:password123@localhost:5432/vulnbank
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_USER: vulnbank
-          POSTGRES_PASSWORD: password123
-          POSTGRES_DB: vulnbank
+          DB_NAME: vulnerable_bank
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_HOST: localhost
+          DB_PORT: 5432
         run: |
           echo "🚀 Starting Vuln Bank Application..."
           pip install -r requirements.txt
+
+          # Create uploads directory
+          mkdir -p static/uploads
 
           # Start app in background
           python app.py &
@@ -99,6 +101,8 @@ jobs:
           # Final check
           if ! curl -s http://localhost:5000 > /dev/null 2>&1; then
             echo "❌ Application failed to start"
+            echo "Checking application logs..."
+            ps aux | grep python || true
             exit 1
           fi
 
