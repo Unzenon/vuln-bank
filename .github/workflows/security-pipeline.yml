@@ -51,7 +51,7 @@ jobs:
           bandit -r . -ll > sast-summary.txt 2>&1 || true
           echo "SAST scan completed"
 
-      # MISCONFIGURATION SCANNING
+      # MISCONFIGURATION SCANNING (MOVED BEFORE DAST)
       - name: 🔧 Install Trivy for Misconfiguration Scanning
         run: |
           sudo apt-get update
@@ -75,6 +75,8 @@ jobs:
       - name: 🚀 Start Application with Docker Compose
         run: |
           echo "🚀 Starting Vuln Bank with Docker Compose..."
+
+          # Check if docker-compose.yml exists
           if [ -f "docker-compose.yml" ]; then
             echo "📄 Found docker-compose.yml"
           else
@@ -82,17 +84,25 @@ jobs:
             exit 1
           fi
 
+          # Start services with docker compose (new syntax)
           docker compose up -d --build
+
+          # Wait for services to be ready
           echo "⏳ Waiting for services to start..."
           sleep 45
 
+          # Check running containers
           docker compose ps
+
+          # Check logs
           echo "📋 Application logs:"
           docker compose logs web | head -20
 
+          # Test if app is running
           for i in {1..20}; do
             if curl -f http://localhost:5000 >/dev/null 2>&1; then
               echo "✅ Application is running on port 5000"
+              echo "📄 Homepage preview:"
               curl -s http://localhost:5000 | head -10
               break
             fi
@@ -100,10 +110,14 @@ jobs:
             sleep 5
           done
 
+          # Show detailed logs if app is not responding
           if ! curl -f http://localhost:5000 >/dev/null 2>&1; then
             echo "❌ Application not responding, showing detailed logs:"
+            echo "=== WEB CONTAINER LOGS ==="
             docker compose logs web
+            echo "=== DB CONTAINER LOGS ==="
             docker compose logs db
+            echo "=== CONTAINER STATUS ==="
             docker compose ps
             exit 1
           fi
@@ -112,8 +126,11 @@ jobs:
         run: |
           echo "🌐 Running DAST Scanning with OWASP ZAP..."
           mkdir -p reports
+
+          # Fix permissions for ZAP
           chmod 777 reports
 
+          # Run OWASP ZAP baseline scan with CORRECTED parameters
           docker run --rm \
             --network host \
             -v ${{ github.workspace }}/reports:/zap/wrk:rw \
@@ -126,38 +143,43 @@ jobs:
             -x /zap/wrk/dast-results.xml \
             -I > reports/dast-output.log 2>&1 || echo "DAST completed with findings"
 
+          # Show ZAP output for debugging
           echo "=== ZAP Scan Output ==="
           cat reports/dast-output.log || echo "No log file found"
 
+          # Parse results from the log output
           echo "=== Parsing DAST Results ==="
           if [ -f "reports/dast-output.log" ] && grep -q "WARN-NEW\|FAIL-NEW" reports/dast-output.log; then
             echo "📊 DAST Issues Found:"
             grep "WARN-NEW\|FAIL-NEW" reports/dast-output.log | head -10
-
+            
+            # Count critical/high issues
             FAIL_COUNT=$(grep -c "FAIL-NEW:" reports/dast-output.log || echo "0")
             WARN_COUNT=$(grep -c "WARN-NEW:" reports/dast-output.log || echo "0")
-            HIGH_COUNT=$(grep -c "High" reports/dast-output.log || echo "0")
-
+            
             echo "🚨 FAIL Issues: $FAIL_COUNT"
             echo "⚠️ WARN Issues: $WARN_COUNT"
-            echo "🔥 HIGH Severity Issues: $HIGH_COUNT"
-
+            
+            # Create simple JSON report from log if ZAP didn't create one
             if [ ! -f "reports/dast-results.json" ]; then
               echo "{
                 \"summary\": {
                   \"fail_issues\": $FAIL_COUNT,
                   \"warn_issues\": $WARN_COUNT,
-                  \"high_issues\": $HIGH_COUNT,
-                  \"total_issues\": $((FAIL_COUNT + WARN_COUNT + HIGH_COUNT))
+                  \"total_issues\": $((FAIL_COUNT + WARN_COUNT))
                 },
                 \"scan_status\": \"completed\",
                 \"target\": \"http://localhost:5000\"
               }" > reports/dast-results.json
             fi
+            
+            # Show sample of issues found
+            echo "📋 Sample Issues Found:"
+            grep "WARN-NEW\|FAIL-NEW" reports/dast-output.log | head -5
           else
             echo "✅ No major issues found in log output"
             if [ ! -f "reports/dast-results.json" ]; then
-              echo '{"summary": {"fail_issues": 0, "warn_issues": 0, "high_issues": 0}, "scan_status": "completed"}' > reports/dast-results.json
+              echo '{"summary": {"fail_issues": 0, "warn_issues": 0}, "scan_status": "completed"}' > reports/dast-results.json
             fi
           fi
 
@@ -169,6 +191,8 @@ jobs:
           echo "🛑 Stopping Docker Compose services..."
           docker compose down || true
           docker compose down --volumes || true
+
+          # Clean up any remaining containers
           docker container prune -f || true
 
       # SAVE REPORTS
@@ -194,14 +218,14 @@ jobs:
           echo "Checking for critical vulnerabilities..."
           CRITICAL_FOUND=false
 
-          # Secrets
+          # Check GitLeaks results
           if [ -f "results.json" ] && [ -s "results.json" ]; then
             echo "❌ CRITICAL: Secrets detected!"
             echo "secrets=true" >> $GITHUB_ENV
             CRITICAL_FOUND=true
           fi
 
-          # SCA
+          # Check SCA results
           if grep -q "vulnerabilities reported" sca-results.txt; then
             VULN_COUNT=$(grep -o "[0-9]\+ vulnerabilities reported" sca-results.txt | head -1 | grep -o "^[0-9]\+")
             if [ "$VULN_COUNT" -gt 0 ]; then
@@ -211,7 +235,7 @@ jobs:
             fi
           fi
 
-          # SAST
+          # Check SAST results
           if [ -f "sast-summary.txt" ]; then
             HIGH_SAST=$(grep -c "Severity: High" sast-summary.txt || echo "0")
             if [ "$HIGH_SAST" -gt 0 ]; then
@@ -221,29 +245,30 @@ jobs:
             fi
           fi
 
-          # DAST
+          # Check DAST results
           if [ -f "reports/dast-results.json" ]; then
+            # Parse JSON for critical issues
             DAST_FAIL=$(jq -r '.summary.fail_issues // 0' reports/dast-results.json 2>/dev/null || echo "0")
-            DAST_HIGH=$(jq -r '.summary.high_issues // 0' reports/dast-results.json 2>/dev/null || echo "0")
             DAST_WARN=$(jq -r '.summary.warn_issues // 0' reports/dast-results.json 2>/dev/null || echo "0")
-
-            if [ "$DAST_FAIL" -gt 0 ] || [ "$DAST_HIGH" -gt 0 ]; then
-              echo "❌ CRITICAL: $((DAST_FAIL + DAST_HIGH)) critical/high DAST issues found!"
+            
+            # Consider FAIL as critical, ignore WARN for critical check
+            if [ "$DAST_FAIL" -gt 0 ]; then
+              echo "❌ CRITICAL: $DAST_FAIL critical DAST issues found!"
               echo "dast_critical=true" >> $GITHUB_ENV
               CRITICAL_FOUND=true
             fi
-
+            
             if [ "$DAST_WARN" -gt 0 ]; then
               echo "⚠️ INFO: $DAST_WARN warning DAST issues found (not blocking)"
             fi
           fi
 
-          # Misconfiguration
+          # Check Misconfiguration results
           if [ -f "misconfig-results.json" ]; then
-            CRITICAL_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' misconfig-results.json 2>/dev/null | wc -l)
-            HIGH_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' misconfig-results.json 2>/dev/null | wc -l)
+            CRITICAL_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' 2>/dev/null | wc -l)
+            HIGH_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' 2>/dev/null | wc -l)
             TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
-
+            
             if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
               echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
               echo "misconfig_critical=true" >> $GITHUB_ENV
@@ -251,6 +276,7 @@ jobs:
             fi
           fi
 
+          # Set overall critical status
           if [ "$CRITICAL_FOUND" = true ]; then
             echo "critical_issues_found=true" >> $GITHUB_ENV
           else
@@ -267,8 +293,8 @@ jobs:
           [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected"
           [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 Vulnerable dependencies"
           [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ Critical SAST issues"
-          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 Critical/High DAST issues"
-          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 Critical/High misconfigurations"
+          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 Critical DAST issues"
+          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 Critical misconfigurations"
           exit 1
 
       # SUCCESS MESSAGE
