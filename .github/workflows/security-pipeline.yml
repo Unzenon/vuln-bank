@@ -11,6 +11,22 @@ jobs:
     name: 🛡️ Security Scanning
     runs-on: ubuntu-latest
 
+    # Add PostgreSQL service for DAST
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: vulnbank
+          POSTGRES_PASSWORD: password123
+          POSTGRES_DB: vulnbank
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -53,6 +69,13 @@ jobs:
 
       # DAST SCANNING
       - name: 🚀 Start Application for DAST
+        env:
+          DATABASE_URL: postgresql://vulnbank:password123@localhost:5432/vulnbank
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: vulnbank
+          POSTGRES_PASSWORD: password123
+          POSTGRES_DB: vulnbank
         run: |
           echo "🚀 Starting Vuln Bank Application..."
           pip install -r requirements.txt
@@ -64,28 +87,31 @@ jobs:
 
           # Wait for app to start
           echo "⏳ Waiting for application to start..."
-          sleep 15
-
-          # Test if app is running
           for i in {1..30}; do
-            if curl -f http://localhost:5000 >/dev/null 2>&1; then
+            if curl -s http://localhost:5000 > /dev/null 2>&1; then
               echo "✅ Application is running on port 5000"
               break
             fi
             echo "⏳ Waiting for app... ($i/30)"
-            sleep 2
+            sleep 3
           done
+
+          # Final check
+          if ! curl -s http://localhost:5000 > /dev/null 2>&1; then
+            echo "❌ Application failed to start"
+            exit 1
+          fi
 
       - name: 🌐 DAST - Dynamic Application Security Testing
         run: |
           echo "🌐 Running DAST Scanning with OWASP ZAP..."
           mkdir -p reports
 
-          # Run OWASP ZAP baseline scan
+          # Use correct OWASP ZAP image
           docker run --rm \
             --network host \
-            -v ${{ github.workspace }}/reports:/zap/wrk:rw \
-            owasp/zap2docker-stable \
+            -v ${{ github.workspace }}/reports:/zap/wrk/:rw \
+            softwaresecurityproject/zap-stable:latest \
             zap-baseline.py \
             -t http://localhost:5000 \
             -J dast-results.json \
@@ -94,7 +120,9 @@ jobs:
             -I || echo "DAST completed with findings"
 
           # Move reports to root directory
-          mv reports/dast-results.* . 2>/dev/null || echo "Reports already in correct location"
+          if [ -f "reports/dast-results.json" ]; then
+            mv reports/dast-results.* . 2>/dev/null || echo "Reports moved"
+          fi
 
           echo "DAST scan completed"
 
@@ -113,18 +141,19 @@ jobs:
       # MISCONFIGURATION SCANNING
       - name: 🔧 Install Trivy for Misconfiguration Scanning
         run: |
+          # Install Trivy using the new method
           sudo apt-get update
           sudo apt-get install wget apt-transport-https gnupg lsb-release -y
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
           sudo apt-get update
           sudo apt-get install trivy jq -y
 
       - name: 🔧 Misconfiguration Scanning
         run: |
           echo "🔧 Running Misconfiguration Scanning..."
-          trivy config . --format json --output misconfig-results.json --quiet
-          trivy config . --format table > misconfig-summary.txt 2>&1
+          trivy config . --format json --output misconfig-results.json --quiet || true
+          trivy config . --format table > misconfig-summary.txt 2>&1 || true
           echo "Misconfiguration scan completed"
 
       # SAVE REPORTS
@@ -147,7 +176,7 @@ jobs:
       # CHECK FOR CRITICAL VULNERABILITIES
       - name: 🚨 Check for Critical Issues
         run: |
-          echo "Checking for critical vulnerabilities..."
+          echo "🔍 Checking for critical vulnerabilities..."
           CRITICAL_FOUND=false
 
           # Check GitLeaks results
@@ -158,8 +187,8 @@ jobs:
           fi
 
           # Check SCA results
-          if grep -q "vulnerabilities reported" sca-results.txt; then
-            VULN_COUNT=$(grep -o "[0-9]\+ vulnerabilities reported" sca-results.txt | head -1 | grep -o "^[0-9]\+")
+          if [ -f "sca-results.txt" ] && grep -q "vulnerabilities reported" sca-results.txt; then
+            VULN_COUNT=$(grep -o "[0-9]\+ vulnerabilities reported" sca-results.txt | head -1 | grep -o "^[0-9]\+" || echo "0")
             if [ "$VULN_COUNT" -gt 0 ]; then
               echo "❌ CRITICAL: $VULN_COUNT vulnerabilities found in dependencies!"
               echo "vulnerabilities=true" >> $GITHUB_ENV
@@ -169,7 +198,7 @@ jobs:
 
           # Check SAST results
           if [ -f "sast-summary.txt" ]; then
-            HIGH_SAST=$(grep -c "Severity: High" sast-summary.txt || echo "0")
+            HIGH_SAST=$(grep -c "Severity: High" sast-summary.txt 2>/dev/null || echo "0")
             if [ "$HIGH_SAST" -gt 0 ]; then
               echo "❌ CRITICAL: $HIGH_SAST high severity SAST issues found!"
               echo "sast_critical=true" >> $GITHUB_ENV
@@ -179,6 +208,7 @@ jobs:
 
           # Check DAST results
           if [ -f "dast-results.json" ]; then
+            # Check for high and critical risk codes
             DAST_HIGH=$(grep -c '"riskcode": "3"' dast-results.json 2>/dev/null || echo "0")
             DAST_CRITICAL=$(grep -c '"riskcode": "4"' dast-results.json 2>/dev/null || echo "0")
             TOTAL_DAST_CRITICAL=$((DAST_HIGH + DAST_CRITICAL))
@@ -192,8 +222,8 @@ jobs:
 
           # Check Misconfiguration results
           if [ -f "misconfig-results.json" ]; then
-            CRITICAL_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' 2>/dev/null | wc -l)
-            HIGH_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' 2>/dev/null | wc -l)
+            CRITICAL_MISCONFIG=$(jq -r '[.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL")] | length' misconfig-results.json 2>/dev/null || echo "0")
+            HIGH_MISCONFIG=$(jq -r '[.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH")] | length' misconfig-results.json 2>/dev/null || echo "0")
             TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
             
             if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
@@ -210,18 +240,26 @@ jobs:
             echo "✅ No critical security issues found!"
           fi
 
-      # FAIL IF CRITICAL ISSUES FOUND
+      # NOTIFICATION STEP (will be enhanced in next phase)
+      - name: 🔔 Security Alert Notification
+        if: env.critical_issues_found == 'true'
+        run: |
+          echo "🚨 SECURITY ALERT: Critical vulnerabilities detected!"
+          echo "This is where we'll send notifications to Slack/Discord/Email"
+          echo "📊 Issues found:"
+          [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected in code"
+          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 Vulnerable dependencies found"
+          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ Critical SAST issues found"
+          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 Critical DAST issues found"
+          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 Critical misconfigurations found"
+
+      # FAIL BUILD ON CRITICAL ISSUES
       - name: ⚠️ Fail Build on Critical Issues
-        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.dast_critical == 'true' || env.misconfig_critical == 'true'
+        if: env.critical_issues_found == 'true'
         run: |
           echo "🚨 BUILD FAILED: Critical security issues detected!"
           echo "🔍 Check the artifacts for detailed reports"
-          echo "📊 Summary of issues found:"
-          [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected"
-          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 Vulnerable dependencies"
-          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ Critical SAST issues"
-          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 Critical DAST issues"
-          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 Critical misconfigurations"
+          echo "📋 Action required: Fix critical issues before deployment"
           exit 1
 
       # SUCCESS MESSAGE
@@ -230,9 +268,11 @@ jobs:
         run: |
           echo "🎉 All security scans completed successfully!"
           echo "✅ No critical security issues found"
-          echo "📊 All scanned areas:"
-          echo "  - 🕵️ Secret Scanning: ✅"
-          echo "  - 📦 SCA (Dependencies): ✅"
-          echo "  - 🛡️ SAST (Code Analysis): ✅"
-          echo "  - 🌐 DAST (Runtime Testing): ✅"
-          echo "  - 🔧 Misconfiguration: ✅"
+          echo "📊 All scanned areas passed:"
+          echo "  - 🕵️ Secret Scanning: ✅ Clean"
+          echo "  - 📦 SCA (Dependencies): ✅ Safe"
+          echo "  - 🛡️ SAST (Code Analysis): ✅ Secure"
+          echo "  - 🌐 DAST (Runtime Testing): ✅ Protected"
+          echo "  - 🔧 Misconfiguration: ✅ Configured"
+          echo ""
+          echo "🚀 Ready for deployment!"
