@@ -52,29 +52,47 @@ jobs:
           echo "SAST scan completed"
 
       # DAST SCANNING
-      - name: 🚀 Start Application for DAST
+      - name: 🐳 Setup Docker for Application
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🚀 Start Application with Docker Compose
         run: |
-          echo "🚀 Starting Vuln Bank Application..."
-          pip install -r requirements.txt
+          echo "🚀 Starting Vuln Bank with Docker Compose..."
 
-          # Start app in background
-          python app.py &
-          APP_PID=$!
-          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          # Check if docker-compose.yml exists
+          if [ -f "docker-compose.yml" ]; then
+            echo "📄 Found docker-compose.yml"
+            cat docker-compose.yml
+          else
+            echo "❌ No docker-compose.yml found, creating simple setup..."
+          fi
 
-          # Wait for app to start
-          echo "⏳ Waiting for application to start..."
-          sleep 15
+          # Start services with docker-compose
+          docker-compose up -d --build
+
+          # Wait for services to be ready
+          echo "⏳ Waiting for services to start..."
+          sleep 30
+
+          # Check running containers
+          docker-compose ps
 
           # Test if app is running
           for i in {1..30}; do
             if curl -f http://localhost:5000 >/dev/null 2>&1; then
               echo "✅ Application is running on port 5000"
+              curl -s http://localhost:5000 | head -5
               break
             fi
             echo "⏳ Waiting for app... ($i/30)"
-            sleep 2
+            sleep 3
           done
+
+          # Show app logs if it's not working
+          if ! curl -f http://localhost:5000 >/dev/null 2>&1; then
+            echo "❌ Application not responding, showing logs:"
+            docker-compose logs
+          fi
 
       - name: 🌐 DAST - Dynamic Application Security Testing
         run: |
@@ -143,14 +161,11 @@ jobs:
       - name: 🛑 Stop Application
         if: always()
         run: |
-          if [ ! -z "$APP_PID" ]; then
-            echo "🛑 Stopping application (PID: $APP_PID)"
-            kill $APP_PID 2>/dev/null || true
-            sleep 2
-          fi
+          echo "🛑 Stopping Docker Compose services..."
+          docker-compose down || true
 
-          # Kill any remaining python processes
-          pkill -f "python app.py" || true
+          # Clean up any remaining containers
+          docker container prune -f || true
 
       # MISCONFIGURATION SCANNING
       - name: 🔧 Install Trivy for Misconfiguration Scanning
