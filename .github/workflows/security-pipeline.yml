@@ -51,6 +51,65 @@ jobs:
           bandit -r . -ll > sast-summary.txt 2>&1 || true
           echo "SAST scan completed"
 
+      # DAST SCANNING
+      - name: 🚀 Start Application for DAST
+        run: |
+          echo "🚀 Starting Vuln Bank Application..."
+          pip install -r requirements.txt
+
+          # Start app in background
+          python app.py &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+
+          # Wait for app to start
+          echo "⏳ Waiting for application to start..."
+          sleep 15
+
+          # Test if app is running
+          for i in {1..30}; do
+            if curl -f http://localhost:5000 >/dev/null 2>&1; then
+              echo "✅ Application is running on port 5000"
+              break
+            fi
+            echo "⏳ Waiting for app... ($i/30)"
+            sleep 2
+          done
+
+      - name: 🌐 DAST - Dynamic Application Security Testing
+        run: |
+          echo "🌐 Running DAST Scanning with OWASP ZAP..."
+          mkdir -p reports
+
+          # Run OWASP ZAP baseline scan
+          docker run --rm \
+            --network host \
+            -v ${{ github.workspace }}/reports:/zap/wrk:rw \
+            owasp/zap2docker-stable \
+            zap-baseline.py \
+            -t http://localhost:5000 \
+            -J dast-results.json \
+            -H dast-results.html \
+            -r dast-results.xml \
+            -I || echo "DAST completed with findings"
+
+          # Move reports to root directory
+          mv reports/dast-results.* . 2>/dev/null || echo "Reports already in correct location"
+
+          echo "DAST scan completed"
+
+      - name: 🛑 Stop Application
+        if: always()
+        run: |
+          if [ ! -z "$APP_PID" ]; then
+            echo "🛑 Stopping application (PID: $APP_PID)"
+            kill $APP_PID 2>/dev/null || true
+            sleep 2
+          fi
+
+          # Kill any remaining python processes
+          pkill -f "python app.py" || true
+
       # MISCONFIGURATION SCANNING
       - name: 🔧 Install Trivy for Misconfiguration Scanning
         run: |
@@ -79,6 +138,9 @@ jobs:
             sca-results.txt
             sast-results.json
             sast-summary.txt
+            dast-results.json
+            dast-results.html
+            dast-results.xml
             misconfig-results.json
             misconfig-summary.txt
 
@@ -86,11 +148,13 @@ jobs:
       - name: 🚨 Check for Critical Issues
         run: |
           echo "Checking for critical vulnerabilities..."
+          CRITICAL_FOUND=false
 
           # Check GitLeaks results
           if [ -f "results.json" ] && [ -s "results.json" ]; then
             echo "❌ CRITICAL: Secrets detected!"
             echo "secrets=true" >> $GITHUB_ENV
+            CRITICAL_FOUND=true
           fi
 
           # Check SCA results
@@ -99,6 +163,7 @@ jobs:
             if [ "$VULN_COUNT" -gt 0 ]; then
               echo "❌ CRITICAL: $VULN_COUNT vulnerabilities found in dependencies!"
               echo "vulnerabilities=true" >> $GITHUB_ENV
+              CRITICAL_FOUND=true
             fi
           fi
 
@@ -108,6 +173,20 @@ jobs:
             if [ "$HIGH_SAST" -gt 0 ]; then
               echo "❌ CRITICAL: $HIGH_SAST high severity SAST issues found!"
               echo "sast_critical=true" >> $GITHUB_ENV
+              CRITICAL_FOUND=true
+            fi
+          fi
+
+          # Check DAST results
+          if [ -f "dast-results.json" ]; then
+            DAST_HIGH=$(grep -c '"riskcode": "3"' dast-results.json 2>/dev/null || echo "0")
+            DAST_CRITICAL=$(grep -c '"riskcode": "4"' dast-results.json 2>/dev/null || echo "0")
+            TOTAL_DAST_CRITICAL=$((DAST_HIGH + DAST_CRITICAL))
+            
+            if [ "$TOTAL_DAST_CRITICAL" -gt 0 ]; then
+              echo "❌ CRITICAL: $TOTAL_DAST_CRITICAL critical/high DAST issues found!"
+              echo "dast_critical=true" >> $GITHUB_ENV
+              CRITICAL_FOUND=true
             fi
           fi
 
@@ -120,13 +199,40 @@ jobs:
             if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
               echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
               echo "misconfig_critical=true" >> $GITHUB_ENV
+              CRITICAL_FOUND=true
             fi
+          fi
+
+          # Set overall critical status
+          if [ "$CRITICAL_FOUND" = true ]; then
+            echo "critical_issues_found=true" >> $GITHUB_ENV
+          else
+            echo "✅ No critical security issues found!"
           fi
 
       # FAIL IF CRITICAL ISSUES FOUND
       - name: ⚠️ Fail Build on Critical Issues
-        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.misconfig_critical == 'true'
+        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.dast_critical == 'true' || env.misconfig_critical == 'true'
         run: |
           echo "🚨 BUILD FAILED: Critical security issues detected!"
           echo "🔍 Check the artifacts for detailed reports"
+          echo "📊 Summary of issues found:"
+          [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected"
+          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 Vulnerable dependencies"
+          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ Critical SAST issues"
+          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 Critical DAST issues"
+          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 Critical misconfigurations"
           exit 1
+
+      # SUCCESS MESSAGE
+      - name: ✅ Security Scan Completed Successfully
+        if: env.critical_issues_found != 'true'
+        run: |
+          echo "🎉 All security scans completed successfully!"
+          echo "✅ No critical security issues found"
+          echo "📊 All scanned areas:"
+          echo "  - 🕵️ Secret Scanning: ✅"
+          echo "  - 📦 SCA (Dependencies): ✅"
+          echo "  - 🛡️ SAST (Code Analysis): ✅"
+          echo "  - 🌐 DAST (Runtime Testing): ✅"
+          echo "  - 🔧 Misconfiguration: ✅"
