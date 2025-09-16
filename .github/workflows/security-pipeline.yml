@@ -62,36 +62,47 @@ jobs:
           # Check if docker-compose.yml exists
           if [ -f "docker-compose.yml" ]; then
             echo "📄 Found docker-compose.yml"
-            cat docker-compose.yml
           else
-            echo "❌ No docker-compose.yml found, creating simple setup..."
+            echo "❌ No docker-compose.yml found"
+            exit 1
           fi
 
-          # Start services with docker-compose
-          docker-compose up -d --build
+          # Start services with docker compose (new syntax)
+          docker compose up -d --build
 
           # Wait for services to be ready
           echo "⏳ Waiting for services to start..."
-          sleep 30
+          sleep 45
 
           # Check running containers
-          docker-compose ps
+          docker compose ps
+
+          # Check logs
+          echo "📋 Application logs:"
+          docker compose logs web | head -20
 
           # Test if app is running
-          for i in {1..30}; do
+          for i in {1..20}; do
             if curl -f http://localhost:5000 >/dev/null 2>&1; then
               echo "✅ Application is running on port 5000"
-              curl -s http://localhost:5000 | head -5
+              echo "📄 Homepage preview:"
+              curl -s http://localhost:5000 | head -10
               break
             fi
-            echo "⏳ Waiting for app... ($i/30)"
-            sleep 3
+            echo "⏳ Waiting for app... ($i/20)"
+            sleep 5
           done
 
-          # Show app logs if it's not working
+          # Show detailed logs if app is not responding
           if ! curl -f http://localhost:5000 >/dev/null 2>&1; then
-            echo "❌ Application not responding, showing logs:"
-            docker-compose logs
+            echo "❌ Application not responding, showing detailed logs:"
+            echo "=== WEB CONTAINER LOGS ==="
+            docker compose logs web
+            echo "=== DB CONTAINER LOGS ==="
+            docker compose logs db
+            echo "=== CONTAINER STATUS ==="
+            docker compose ps
+            exit 1
           fi
 
       - name: 🌐 DAST - Dynamic Application Security Testing
@@ -162,7 +173,8 @@ jobs:
         if: always()
         run: |
           echo "🛑 Stopping Docker Compose services..."
-          docker-compose down || true
+          docker compose down || true
+          docker compose down --volumes || true
 
           # Clean up any remaining containers
           docker container prune -f || true
