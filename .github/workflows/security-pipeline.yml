@@ -113,63 +113,63 @@ jobs:
           # Fix permissions for ZAP
           chmod 777 reports
 
-          # Run OWASP ZAP baseline scan with correct image name
+          # Run OWASP ZAP baseline scan with CORRECT parameters
           docker run --rm \
             --network host \
             -v ${{ github.workspace }}/reports:/zap/wrk:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t http://localhost:5000 \
-            -g gen.conf \
-            -J dast-results.json \
-            -H dast-results.html \
-            -r dast-results.xml \
-            -I > dast-output.log 2>&1 || echo "DAST completed with findings"
+            -g /zap/wrk/gen.conf \
+            -J /zap/wrk/dast-results.json \
+            -r /zap/wrk/dast-results.html \
+            -x /zap/wrk/dast-results.xml \
+            -I > reports/dast-output.log 2>&1 || echo "DAST completed with findings"
 
           # Show ZAP output for debugging
           echo "=== ZAP Scan Output ==="
-          cat dast-output.log || echo "No log file found"
+          cat reports/dast-output.log || echo "No log file found"
+
+          # Check generated files
+          echo "=== Generated Files ==="
+          ls -la reports/
 
           # Parse results from the log output
           echo "=== Parsing DAST Results ==="
-          if [ -f "dast-output.log" ] && grep -q "WARN-NEW\|FAIL-NEW" dast-output.log; then
+          if [ -f "reports/dast-output.log" ] && grep -q "WARN-NEW\|FAIL-NEW" reports/dast-output.log; then
             echo "📊 DAST Issues Found:"
-            grep "WARN-NEW\|FAIL-NEW" dast-output.log | head -10
+            grep "WARN-NEW\|FAIL-NEW" reports/dast-output.log | head -10
             
             # Count critical/high issues
-            FAIL_COUNT=$(grep -c "FAIL-NEW:" dast-output.log || echo "0")
-            WARN_COUNT=$(grep -c "WARN-NEW:" dast-output.log || echo "0")
+            FAIL_COUNT=$(grep -c "FAIL-NEW:" reports/dast-output.log || echo "0")
+            WARN_COUNT=$(grep -c "WARN-NEW:" reports/dast-output.log || echo "0")
             
             echo "🚨 FAIL Issues: $FAIL_COUNT"
             echo "⚠️ WARN Issues: $WARN_COUNT"
             
-            # Create simple JSON report from log
-            echo "{
-              \"summary\": {
-                \"fail_issues\": $FAIL_COUNT,
-                \"warn_issues\": $WARN_COUNT,
-                \"total_issues\": $((FAIL_COUNT + WARN_COUNT))
-              },
-              \"scan_status\": \"completed\",
-              \"target\": \"http://localhost:5000\"
-            }" > dast-results.json
+            # Move ZAP reports to root if they exist
+            [ -f "reports/dast-results.json" ] && cp reports/dast-results.json . || echo "No JSON report from ZAP"
+            [ -f "reports/dast-results.html" ] && cp reports/dast-results.html . || echo "No HTML report from ZAP"
             
-            # Create simple HTML report
-            echo "<html><body>
-            <h2>DAST Scan Results</h2>
-            <p>Target: http://localhost:5000</p>
-            <p>Critical/High Issues: $FAIL_COUNT</p>
-            <p>Medium Issues: $WARN_COUNT</p>
-            <pre>$(grep 'WARN-NEW\|FAIL-NEW' dast-output.log)</pre>
-            </body></html>" > dast-results.html
+            # Create simple JSON report from log if ZAP didn't create one
+            if [ ! -f "dast-results.json" ]; then
+              echo "{
+                \"summary\": {
+                  \"fail_issues\": $FAIL_COUNT,
+                  \"warn_issues\": $WARN_COUNT,
+                  \"total_issues\": $((FAIL_COUNT + WARN_COUNT))
+                },
+                \"scan_status\": \"completed\",
+                \"target\": \"http://localhost:5000\"
+              }" > dast-results.json
+            fi
             
             # Show sample of issues found
             echo "📋 Sample Issues Found:"
-            grep "WARN-NEW\|FAIL-NEW" dast-output.log | head -5
+            grep "WARN-NEW\|FAIL-NEW" reports/dast-output.log | head -5
           else
-            echo "✅ No major issues found or scan failed"
+            echo "✅ No major issues found in log output"
             echo '{"summary": {"fail_issues": 0, "warn_issues": 0}, "scan_status": "completed"}' > dast-results.json
-            echo "<html><body><h2>DAST Scan Results</h2><p>No critical issues found</p></body></html>" > dast-results.html
           fi
 
           echo "DAST scan completed"
@@ -214,7 +214,7 @@ jobs:
             sast-summary.txt
             dast-results.json
             dast-results.html
-            dast-output.log
+            reports/dast-output.log
             misconfig-results.json
             misconfig-summary.txt
 
@@ -251,22 +251,39 @@ jobs:
             fi
           fi
 
-          # Check DAST results
+          # Check DAST results - IMPROVED PARSING
           if [ -f "dast-results.json" ]; then
-            # Parse JSON for critical issues
-            DAST_FAIL=$(jq -r '.summary.fail_issues // 0' dast-results.json 2>/dev/null || echo "0")
-            DAST_WARN=$(jq -r '.summary.warn_issues // 0' dast-results.json 2>/dev/null || echo "0")
+            echo "📊 Checking DAST JSON results..."
+            cat dast-results.json | jq '.' || echo "Invalid JSON format"
             
-            # Consider FAIL as critical, ignore WARN for critical check
-            if [ "$DAST_FAIL" -gt 0 ]; then
-              echo "❌ CRITICAL: $DAST_FAIL critical DAST issues found!"
+            # Try to parse ZAP JSON format
+            HIGH_ALERTS=$(cat dast-results.json | jq -r '.site[]?.alerts[]? | select(.riskcode == "3") | .riskcode' 2>/dev/null | wc -l || echo "0")
+            CRITICAL_ALERTS=$(cat dast-results.json | jq -r '.site[]?.alerts[]? | select(.riskcode == "4") | .riskcode' 2>/dev/null | wc -l || echo "0")
+            
+            echo "🔍 DAST Analysis: High=$HIGH_ALERTS, Critical=$CRITICAL_ALERTS"
+            
+            if [ "$CRITICAL_ALERTS" -gt 0 ] || [ "$HIGH_ALERTS" -gt 0 ]; then
+              echo "❌ CRITICAL: $((CRITICAL_ALERTS + HIGH_ALERTS)) critical/high DAST issues found!"
+              echo "dast_critical=true" >> $GITHUB_ENV
+              CRITICAL_FOUND=true
+            else
+              echo "✅ No critical DAST issues found"
+            fi
+          elif [ -f "reports/dast-results.html" ]; then
+            echo "📊 Checking DAST HTML results as fallback..."
+            # Parse HTML for High/Critical alerts
+            HIGH_HTML=$(grep -c "Risk Level.*High" reports/dast-results.html || echo "0")
+            CRITICAL_HTML=$(grep -c "Risk Level.*Critical" reports/dast-results.html || echo "0")
+            
+            echo "🔍 DAST HTML Analysis: High=$HIGH_HTML, Critical=$CRITICAL_HTML"
+            
+            if [ "$CRITICAL_HTML" -gt 0 ] || [ "$HIGH_HTML" -gt 0 ]; then
+              echo "❌ CRITICAL: $((CRITICAL_HTML + HIGH_HTML)) critical/high DAST issues found in HTML!"
               echo "dast_critical=true" >> $GITHUB_ENV
               CRITICAL_FOUND=true
             fi
-            
-            if [ "$DAST_WARN" -gt 0 ]; then
-              echo "⚠️ INFO: $DAST_WARN warning DAST issues found (not blocking)"
-            fi
+          else
+            echo "⚠️ No DAST results found"
           fi
 
           # Check Misconfiguration results
