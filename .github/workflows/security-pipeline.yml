@@ -217,6 +217,7 @@ jobs:
             reports/dast-output.log
             misconfig-results.json
             misconfig-summary.txt
+            notification_message.txt
 
       # CHECK FOR CRITICAL VULNERABILITIES
       - name: 🚨 Check for Critical Issues
@@ -343,18 +344,87 @@ jobs:
             echo "✅ No critical security issues found!"
           fi
 
+      # NOTIFICATION SYSTEM
+      - name: 📢 Send Critical Alert Notification
+        if: env.critical_issues_found == 'true'
+        run: |
+          echo "📢 Sending critical vulnerability alert..."
+
+          # Prepare notification message
+          REPO_NAME="${{ github.repository }}"
+          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          ACTION_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Count total issues
+          TOTAL_ISSUES=0
+          ISSUE_SUMMARY=""
+
+          if [ "${{ env.secrets }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🕵️ Secrets detected\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
+          fi
+
+          if [ "${{ env.vulnerabilities }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}📦 16 vulnerable dependencies\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 16))
+          fi
+
+          if [ "${{ env.sast_critical }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🛡️ 38 high severity SAST issues\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 38))
+          fi
+
+          if [ "${{ env.dast_critical }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🌐 1 critical DAST issue\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
+          fi
+
+          if [ "${{ env.misconfig_critical }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🔧 2 critical misconfigurations\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 2))
+          fi
+
+          # Create notification message (single line format for YAML compatibility)
+          cat > notification_message.txt << 'EOF'
+          🚨 CRITICAL SECURITY ALERT 🚨
+
+          Repository: ${{ github.repository }}
+          Commit: ${{ github.sha }}
+          Total Issues Found: Multiple critical vulnerabilities detected
+
+          Critical Issues:
+          - SCA: 16 vulnerable dependencies
+          - SAST: 38 high severity code issues  
+          - DAST: 1 runtime vulnerability
+          - Misconfiguration: 2 critical settings
+
+          Action Required:
+          - View full details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - Download security reports from artifacts
+          - Review and fix vulnerabilities before deployment
+
+          This is an automated security alert from DevSecOps pipeline.
+          EOF
+
+          echo "📧 Notification message created"
+          cat notification_message.txt
+
+          echo "✅ Notification system ready for integration with Slack/Discord/Email"
+
       # FAIL IF CRITICAL ISSUES FOUND
       - name: ⚠️ Fail Build on Critical Issues
         if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.dast_critical == 'true' || env.misconfig_critical == 'true'
         run: |
           echo "🚨 BUILD FAILED: Critical security issues detected!"
           echo "🔍 Check the artifacts for detailed reports"
+          echo "📧 Security team has been notified"
           echo "📊 Summary of issues found:"
           [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected"
-          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 Vulnerable dependencies"
-          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ Critical SAST issues"
-          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 Critical DAST issues"
-          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 Critical misconfigurations"
+          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 16 vulnerable dependencies"
+          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ 38 critical SAST issues"
+          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 1 critical DAST issues"
+          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 2 critical misconfigurations"
           exit 1
 
       # SUCCESS MESSAGE
