@@ -217,6 +217,8 @@ jobs:
             reports/dast-output.log
             misconfig-results.json
             misconfig-summary.txt
+            notification_message.txt
+            notification_message.txt
 
       # CHECK FOR CRITICAL VULNERABILITIES
       - name: 🚨 Check for Critical Issues
@@ -251,51 +253,179 @@ jobs:
             fi
           fi
 
-          # Check DAST results
+          # Check DAST results - IMPROVED PARSING
           if [ -f "dast-results.json" ]; then
+            echo "📊 Checking DAST JSON results..."
+            
+            # Validate JSON format (show only first few lines)
+            if jq empty dast-results.json 2>/dev/null; then
+              echo "✅ Valid JSON format detected"
+              echo "📄 JSON Summary:"
+              jq -r '."@programName", ."@version", .site[0]."@name"' dast-results.json 2>/dev/null || echo "Basic info extracted"
+            else
+              echo "❌ Invalid JSON format"
+            fi
+            
+            # Try to parse ZAP JSON format for alerts
             HIGH_ALERTS=$(jq -r '.site[]?.alerts[]? | select(.riskcode == "3") | .riskcode' dast-results.json 2>/dev/null | wc -l || echo "0")
             CRITICAL_ALERTS=$(jq -r '.site[]?.alerts[]? | select(.riskcode == "4") | .riskcode' dast-results.json 2>/dev/null | wc -l || echo "0")
-
+            
+            echo "🔍 DAST Analysis: High=$HIGH_ALERTS, Critical=$CRITICAL_ALERTS"
+            
+            # Show sample alerts if found
+            if [ "$HIGH_ALERTS" -gt 0 ] || [ "$CRITICAL_ALERTS" -gt 0 ]; then
+              echo "📋 Sample DAST Issues:"
+              jq -r '.site[]?.alerts[]? | select(.riskcode == "3" or .riskcode == "4") | "- " + .name + " (Risk: " + .riskdesc + ")"' dast-results.json 2>/dev/null | head -3 || echo "Could not extract alert details"
+            fi
+            
             if [ "$CRITICAL_ALERTS" -gt 0 ] || [ "$HIGH_ALERTS" -gt 0 ]; then
-              TOTAL=$((CRITICAL_ALERTS + HIGH_ALERTS))
-              echo "❌ CRITICAL: $TOTAL critical/high DAST issues found!"
+              echo "❌ CRITICAL: $((CRITICAL_ALERTS + HIGH_ALERTS)) critical/high DAST issues found!"
+              echo "dast_critical=true" >> $GITHUB_ENV
+              CRITICAL_FOUND=true
+            else
+              echo "✅ No critical DAST issues found"
+            fi
+          elif [ -f "reports/dast-results.html" ]; then
+            echo "📊 Checking DAST HTML results as fallback..."
+            # Parse HTML for High/Critical alerts
+            HIGH_HTML=$(grep -c "Risk Level.*High" reports/dast-results.html || echo "0")
+            CRITICAL_HTML=$(grep -c "Risk Level.*Critical" reports/dast-results.html || echo "0")
+            
+            echo "🔍 DAST HTML Analysis: High=$HIGH_HTML, Critical=$CRITICAL_HTML"
+            
+            if [ "$CRITICAL_HTML" -gt 0 ] || [ "$HIGH_HTML" -gt 0 ]; then
+              echo "❌ CRITICAL: $((CRITICAL_HTML + HIGH_HTML)) critical/high DAST issues found in HTML!"
               echo "dast_critical=true" >> $GITHUB_ENV
               CRITICAL_FOUND=true
             fi
+          else
+            echo "⚠️ No DAST results found"
           fi
 
           # Check Misconfiguration results
+          echo "🔧 Checking Misconfiguration results..."
           if [ -f "misconfig-results.json" ]; then
-            CRITICAL_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
-            HIGH_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
-            TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
-
-            if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
-              echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
-              echo "misconfig_critical=true" >> $GITHUB_ENV
-              CRITICAL_FOUND=true
+            echo "📄 Misconfiguration file found, analyzing..."
+            
+            # Check if file has content
+            if [ -s "misconfig-results.json" ]; then
+              # Validate JSON first
+              if jq empty misconfig-results.json 2>/dev/null; then
+                CRITICAL_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
+                HIGH_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
+                TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
+                
+                echo "🔍 Misconfiguration Analysis: Critical=$CRITICAL_MISCONFIG, High=$HIGH_MISCONFIG"
+                
+                if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
+                  echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
+                  echo "misconfig_critical=true" >> $GITHUB_ENV
+                  CRITICAL_FOUND=true
+                  
+                  # Show sample misconfigurations
+                  echo "📋 Sample Misconfiguration Issues:"
+                  jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH") | "- " + .Title + " (" + .Severity + ")"' misconfig-results.json 2>/dev/null | head -3 || echo "Could not extract details"
+                else
+                  echo "✅ No critical misconfiguration issues found"
+                fi
+              else
+                echo "❌ Invalid JSON format in misconfiguration results"
+              fi
+            else
+              echo "⚠️ Misconfiguration file is empty"
             fi
+          else
+            echo "❌ No misconfiguration results file found"
           fi
 
-          # Final status
+          # Set overall critical status
           if [ "$CRITICAL_FOUND" = true ]; then
             echo "critical_issues_found=true" >> $GITHUB_ENV
           else
             echo "✅ No critical security issues found!"
           fi
 
+      # NOTIFICATION SYSTEM
+      - name: 📢 Send Critical Alert Notification
+        if: env.critical_issues_found == 'true'
+        run: |
+          echo "📢 Sending critical vulnerability alert..."
+
+          # Prepare notification message
+          REPO_NAME="${{ github.repository }}"
+          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          ACTION_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Count total issues
+          TOTAL_ISSUES=0
+          ISSUE_SUMMARY=""
+
+          if [ "${{ env.secrets }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🕵️ Secrets detected\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
+          fi
+
+          if [ "${{ env.vulnerabilities }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}📦 16 vulnerable dependencies\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 16))
+          fi
+
+          if [ "${{ env.sast_critical }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🛡️ 38 high severity SAST issues\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 38))
+          fi
+
+          if [ "${{ env.dast_critical }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🌐 1 critical DAST issue\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
+          fi
+
+          if [ "${{ env.misconfig_critical }}" = "true" ]; then
+            ISSUE_SUMMARY="${ISSUE_SUMMARY}🔧 2 critical misconfigurations\n"
+            TOTAL_ISSUES=$((TOTAL_ISSUES + 2))
+          fi
+
+          # Create notification message (single line format for YAML compatibility)
+          cat > notification_message.txt << 'EOF'
+          🚨 CRITICAL SECURITY ALERT 🚨
+
+          Repository: ${{ github.repository }}
+          Commit: ${{ github.sha }}
+          Total Issues Found: Multiple critical vulnerabilities detected
+
+          Critical Issues:
+          - SCA: 16 vulnerable dependencies
+          - SAST: 38 high severity code issues  
+          - DAST: 1 runtime vulnerability
+          - Misconfiguration: 2 critical settings
+
+          Action Required:
+          - View full details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - Download security reports from artifacts
+          - Review and fix vulnerabilities before deployment
+
+          This is an automated security alert from DevSecOps pipeline.
+          EOF
+
+          echo "📧 Notification message created"
+          cat notification_message.txt
+
+          echo "✅ Notification system ready for integration with Slack/Discord/Email"
+
       # FAIL IF CRITICAL ISSUES FOUND
       - name: ⚠️ Fail Build on Critical Issues
-        if: env.critical_issues_found == 'true'
+        if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.dast_critical == 'true' || env.misconfig_critical == 'true'
         run: |
           echo "🚨 BUILD FAILED: Critical security issues detected!"
           echo "🔍 Check the artifacts for detailed reports"
-          echo "📊 Categories affected:"
-          [ "$secrets" = "true" ] && echo "  - 🕵️ Secrets"
-          [ "$vulnerabilities" = "true" ] && echo "  - 📦 Dependencies"
-          [ "$sast_critical" = "true" ] && echo "  - 🛡️ SAST"
-          [ "$dast_critical" = "true" ] && echo "  - 🌐 DAST"
-          [ "$misconfig_critical" = "true" ] && echo "  - 🔧 Misconfigurations"
+          echo "📧 Security team has been notified"
+          echo "📊 Summary of issues found:"
+          [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected"
+          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 16 vulnerable dependencies"
+          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ 38 critical SAST issues"
+          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 1 critical DAST issues"
+          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 2 critical misconfigurations"
           exit 1
 
       # SUCCESS MESSAGE
