@@ -254,13 +254,27 @@ jobs:
           # Check DAST results - IMPROVED PARSING
           if [ -f "dast-results.json" ]; then
             echo "📊 Checking DAST JSON results..."
-            cat dast-results.json | jq '.' || echo "Invalid JSON format"
             
-            # Try to parse ZAP JSON format
-            HIGH_ALERTS=$(cat dast-results.json | jq -r '.site[]?.alerts[]? | select(.riskcode == "3") | .riskcode' 2>/dev/null | wc -l || echo "0")
-            CRITICAL_ALERTS=$(cat dast-results.json | jq -r '.site[]?.alerts[]? | select(.riskcode == "4") | .riskcode' 2>/dev/null | wc -l || echo "0")
+            # Validate JSON format (show only first few lines)
+            if jq empty dast-results.json 2>/dev/null; then
+              echo "✅ Valid JSON format detected"
+              echo "📄 JSON Summary:"
+              jq -r '."@programName", ."@version", .site[0]."@name"' dast-results.json 2>/dev/null || echo "Basic info extracted"
+            else
+              echo "❌ Invalid JSON format"
+            fi
+            
+            # Try to parse ZAP JSON format for alerts
+            HIGH_ALERTS=$(jq -r '.site[]?.alerts[]? | select(.riskcode == "3") | .riskcode' dast-results.json 2>/dev/null | wc -l || echo "0")
+            CRITICAL_ALERTS=$(jq -r '.site[]?.alerts[]? | select(.riskcode == "4") | .riskcode' dast-results.json 2>/dev/null | wc -l || echo "0")
             
             echo "🔍 DAST Analysis: High=$HIGH_ALERTS, Critical=$CRITICAL_ALERTS"
+            
+            # Show sample alerts if found
+            if [ "$HIGH_ALERTS" -gt 0 ] || [ "$CRITICAL_ALERTS" -gt 0 ]; then
+              echo "📋 Sample DAST Issues:"
+              jq -r '.site[]?.alerts[]? | select(.riskcode == "3" or .riskcode == "4") | "- " + .name + " (Risk: " + .riskdesc + ")"' dast-results.json 2>/dev/null | head -3 || echo "Could not extract alert details"
+            fi
             
             if [ "$CRITICAL_ALERTS" -gt 0 ] || [ "$HIGH_ALERTS" -gt 0 ]; then
               echo "❌ CRITICAL: $((CRITICAL_ALERTS + HIGH_ALERTS)) critical/high DAST issues found!"
@@ -287,16 +301,39 @@ jobs:
           fi
 
           # Check Misconfiguration results
+          echo "🔧 Checking Misconfiguration results..."
           if [ -f "misconfig-results.json" ]; then
-            CRITICAL_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' 2>/dev/null | wc -l)
-            HIGH_MISCONFIG=$(cat misconfig-results.json | jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' 2>/dev/null | wc -l)
-            TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
+            echo "📄 Misconfiguration file found, analyzing..."
             
-            if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
-              echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
-              echo "misconfig_critical=true" >> $GITHUB_ENV
-              CRITICAL_FOUND=true
+            # Check if file has content
+            if [ -s "misconfig-results.json" ]; then
+              # Validate JSON first
+              if jq empty misconfig-results.json 2>/dev/null; then
+                CRITICAL_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
+                HIGH_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
+                TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
+                
+                echo "🔍 Misconfiguration Analysis: Critical=$CRITICAL_MISCONFIG, High=$HIGH_MISCONFIG"
+                
+                if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
+                  echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
+                  echo "misconfig_critical=true" >> $GITHUB_ENV
+                  CRITICAL_FOUND=true
+                  
+                  # Show sample misconfigurations
+                  echo "📋 Sample Misconfiguration Issues:"
+                  jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH") | "- " + .Title + " (" + .Severity + ")"' misconfig-results.json 2>/dev/null | head -3 || echo "Could not extract details"
+                else
+                  echo "✅ No critical misconfiguration issues found"
+                fi
+              else
+                echo "❌ Invalid JSON format in misconfiguration results"
+              fi
+            else
+              echo "⚠️ Misconfiguration file is empty"
             fi
+          else
+            echo "❌ No misconfiguration results file found"
           fi
 
           # Set overall critical status
