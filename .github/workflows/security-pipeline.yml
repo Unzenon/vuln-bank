@@ -636,7 +636,7 @@ jobs:
             sast-summary.txt
             dast-results.json
             dast-results.html
-            reports/dast-output.log
+            dast-output.log
             misconfig-results.json
             misconfig-summary.txt
             discord_payload.json
