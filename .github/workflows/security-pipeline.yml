@@ -355,19 +355,131 @@ jobs:
           fi
 
       # GITHUB ISSUES INTEGRATION (BONUS)
-      - name: Create GitHub Issue for Critical Findings
+      - name: 📢Create GitHub Issue for Critical Findings
         if: env.critical_issues_found == 'true'
         run: |
-          curl -X POST \
+          echo "Creating GitHub issue for critical security findings..."
+
+          # Prepare issue details safely
+          REPO_NAME="${{ github.repository }}"
+          RUN_ID="${{ github.run_id }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          COMMIT_SHA="${{ github.sha }}"
+          ACTOR="${{ github.actor }}"
+          CURRENT_DATE=$(date '+%Y-%m-%d %H:%M:%S UTC')
+
+          # Build issue body
+          ISSUE_BODY="## 🚨 Critical Security Vulnerabilities Detected
+
+          **Repository:** ${REPO_NAME}
+          **Pipeline Run:** ${RUN_ID}
+          **Commit:** ${COMMIT_SHA}
+          **Triggered by:** ${ACTOR}
+          **Scan Date:** ${CURRENT_DATE}
+
+          ### 📋 Issues Found:
+          "
+
+          # Add specific issue details
+          if [ "${{ env.secrets }}" = "true" ]; then
+            ISSUE_BODY="${ISSUE_BODY}
+          - 🕵️ **Secrets Detected** - Hardcoded credentials found in repository"
+          fi
+
+          if [ "${{ env.vulnerabilities }}" = "true" ]; then
+            VULN_COUNT="${{ env.vuln_count }}"
+            ISSUE_BODY="${ISSUE_BODY}
+          - 📦 **SCA Issues** - ${VULN_COUNT} vulnerable dependencies detected"
+          fi
+
+          if [ "${{ env.sast_critical }}" = "true" ]; then
+            SAST_COUNT="${{ env.sast_high_count }}"
+            ISSUE_BODY="${ISSUE_BODY}
+          - 🛡️ **SAST Issues** - ${SAST_COUNT} high severity code vulnerabilities"
+          fi
+
+          if [ "${{ env.dast_critical }}" = "true" ]; then
+            DAST_COUNT="${{ env.dast_total_count }}"
+            ISSUE_BODY="${ISSUE_BODY}
+          - 🌐 **DAST Issues** - ${DAST_COUNT} critical runtime vulnerabilities"
+          fi
+
+          if [ "${{ env.misconfig_critical }}" = "true" ]; then
+            MISCONFIG_COUNT="${{ env.misconfig_total_count }}"
+            ISSUE_BODY="${ISSUE_BODY}
+          - 🔧 **Misconfiguration** - ${MISCONFIG_COUNT} critical configuration issues"
+          fi
+
+          ISSUE_BODY="${ISSUE_BODY}
+
+          ### 🔗 Links:
+          - [📊 View Pipeline Results](${RUN_URL})
+          - [📁 Download Security Reports](${RUN_URL}#artifacts)
+
+          ### ⚠️ Action Required:
+          1. Review detailed security reports in pipeline artifacts
+          2. Fix all critical vulnerabilities before deployment
+          3. Re-run security pipeline after fixes
+          4. Close this issue once all vulnerabilities are resolved
+
+          ---
+          **🤖 This issue was created automatically by the DevSecOps Security Pipeline**
+          "
+
+          # Create JSON payload file
+          cat > github_issue.json << 'EOF'
+          {
+            "title": "🚨 Critical Security Vulnerabilities Detected - CURRENT_DATE_PLACEHOLDER",
+            "body": "ISSUE_BODY_PLACEHOLDER",
+            "labels": ["security", "critical", "vulnerability", "automated"]
+          }
+          EOF
+
+          # Replace placeholders
+          sed -i "s/CURRENT_DATE_PLACEHOLDER/${CURRENT_DATE}/g" github_issue.json
+
+          # Use a temporary file for the body
+          echo "${ISSUE_BODY}" > issue_body.txt
+
+          # Create the final JSON with proper escaping
+          jq --arg body "$(cat issue_body.txt)" --arg date "${CURRENT_DATE}" \
+            '.body = $body | .title = ("🚨 Critical Security Vulnerabilities - " + $date)' \
+            github_issue.json > final_issue.json
+
+          echo "📝 GitHub issue payload created:"
+          head -20 final_issue.json
+
+          # Create the issue via GitHub API
+          HTTP_RESPONSE=$(curl -s -o github_response.txt -w "%{http_code}" \
+            -X POST \
             -H "Authorization: token ${{ github.token }}" \
             -H "Content-Type: application/json" \
-            -d '{
-              "title": "Critical Security Vulnerabilities - '"$(date)"'",
-              "body": "Critical vulnerabilities detected in pipeline run ${{ github.run_id }}\n\nView details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "labels": ["security", "critical"]
-            }' \
-            "https://api.github.com/repos/${{ github.repository }}/issues" \
-            || echo "Failed to create issue via API"
+            -H "Accept: application/vnd.github.v3+json" \
+            -d @final_issue.json \
+            "https://api.github.com/repos/${{ github.repository }}/issues")
+
+          echo "📊 GitHub API Response Code: ${HTTP_RESPONSE}"
+
+          if [ "${HTTP_RESPONSE}" = "201" ]; then
+            echo "✅ GitHub issue created successfully!"
+            ISSUE_URL=$(jq -r '.html_url' github_response.txt 2>/dev/null || echo "N/A")
+            echo "🔗 Issue URL: ${ISSUE_URL}"
+            echo "github_issue_created=true" >> $GITHUB_ENV
+            echo "github_issue_url=${ISSUE_URL}" >> $GITHUB_ENV
+          else
+            echo "❌ Failed to create GitHub issue"
+            echo "📄 Response details:"
+            cat github_response.txt || echo "No response file"
+            echo "github_issue_created=false" >> $GITHUB_ENV
+
+            # Don't fail the pipeline
+            echo "⚠️ Continuing pipeline despite GitHub issue creation failure..."
+          fi
+
+          # Cleanup
+          rm -f github_issue.json final_issue.json issue_body.txt github_response.txt
+
+          echo "✅ GitHub issue creation process completed"
 
       - name: 📢 Send Discord Alert for Critical Issues
         if: env.critical_issues_found == 'true'
