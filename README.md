@@ -1,7 +1,7 @@
 # DevSecOps Security Pipeline - Vuln Bank 🔐
 ## Automated Security Scanning Pipeline untuk Aplikasi Perbankan Digital
 
-[![Security Pipeline](https://img.shields.io/github/actions/workflow/status/Unzenon/vuln-bank/devsecops-pipeline.yml?branch=main&label=Security%20Pipeline)](https://github.com/Unzenon/vuln-bank/actions/workflows/devsecops-pipeline.yml)
+[![Security Pipeline](https://img.shields.io/github/actions/workflow/status/Unzenon/vuln-bank/devsecops-pipeline.yml?branch=main&label=Security%20Pipeline)](https://github.com/Unzenon/vuln-bank/actions/runs/17823562998)
 [![Vulnerabilities](https://img.shields.io/badge/Vulnerabilities-58%20Critical-red)](https://github.com/Unzenon/vuln-bank/security)
 [![Discord](https://img.shields.io/badge/Notifications-Discord-7289da)](https://discord.gg/security-alerts)
 
