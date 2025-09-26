@@ -1,4 +1,4 @@
-name: 🔐 DevSecOps Security Pipeline
+name: DevSecOps Security Pipeline
 
 on:
   push:
@@ -8,39 +8,33 @@ on:
 
 jobs:
   security-scan:
-    name: 🛡️ Security Scanning
+    name: Security Scanning
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout Code
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      # # SECRET SCANNING
-      # - name: 🕵️ Secret Scanning with GitLeaks
-      #   uses: gitleaks/gitleaks-action@v2
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # SECRET SCANNING - FULL REPOSITORY SCAN (FOR TESTING)
-      - name: 🕵️ Secret Scanning with GitLeaks (Full Scan)
+      # SECRET SCANNING
+      - name: Secret Scanning with GitLeaks
         run: |
-          echo "🕵️ Running comprehensive secret scanning..."
+          echo "Running comprehensive secret scanning..."
 
           # Install GitLeaks manually
           wget https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
           tar -xzf gitleaks_8.24.3_linux_x64.tar.gz
           chmod +x gitleaks
 
-          echo "📁 Scanning entire repository for secrets..."
+          echo "Scanning entire repository for secrets..."
 
-          # Full repository scan (tidak hanya commit baru)
+          # Full repository scan
           ./gitleaks detect \
             --source . \
             --verbose \
@@ -50,89 +44,89 @@ jobs:
 
           # Show detailed results
           if [ -f "results.json" ] && [ -s "results.json" ]; then
-            echo "🚨 SECRETS FOUND IN REPOSITORY!"
-            echo "📊 Total secrets detected:"
+            echo "SECRETS FOUND IN REPOSITORY!"
+            echo "Total secrets detected:"
             cat results.json | jq '. | length' || echo "Multiple secrets found"
             
-            echo "📋 Detailed findings:"
-            cat results.json | jq -r '.[] | "📁 File: " + .File + "\n🔢 Line: " + (.StartLine|tostring) + "\n🔍 Secret Type: " + .RuleID + "\n🔗 Match: " + .Match + "\n---"' || cat results.json
+            echo "Detailed findings:"
+            cat results.json | jq -r '.[] | "File: " + .File + "\nLine: " + (.StartLine|tostring) + "\nSecret Type: " + .RuleID + "\nMatch: " + .Match + "\n---"' || cat results.json
             
             echo "secrets=true" >> $GITHUB_ENV
           else
-            echo "✅ No secrets detected in full repository scan"
+            echo "No secrets detected in full repository scan"
             echo "secrets=false" >> $GITHUB_ENV
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # SCA SCANNING
-      - name: 📦 Install Safety for SCA
+      - name: Install Safety for SCA
         run: |
           pip install safety
 
-      - name: 🔍 SCA - Software Composition Analysis
+      - name: SCA - Software Composition Analysis
         run: |
-          echo "🔍 Running SCA Scanning..."
+          echo "Running SCA Scanning..."
           safety check --file requirements.txt --output text > sca-results.txt || true
           cat sca-results.txt
 
       # SAST SCANNING
-      - name: 🛡️ Install Bandit for SAST
+      - name: Install Bandit for SAST
         run: |
           pip install bandit
 
-      - name: 🔍 SAST - Static Application Security Testing
+      - name: SAST - Static Application Security Testing
         run: |
-          echo "🛡️ Running SAST Scanning..."
+          echo "Running SAST Scanning..."
           bandit -r . -f json -o sast-results.json || true
           bandit -r . -ll > sast-summary.txt 2>&1 || true
           echo "SAST scan completed"
 
       # DAST SCANNING
-      - name: 🐳 Setup Docker for Application
+      - name: Setup Docker for Application
         uses: docker/setup-buildx-action@v3
 
-      - name: 🚀 Start Application with Docker Compose
+      - name: Start Application with Docker Compose
         run: |
-          echo "🚀 Starting Vuln Bank with Docker Compose..."
+          echo "Starting Vuln Bank with Docker Compose..."
 
           # Check if docker-compose.yml exists
           if [ -f "docker-compose.yml" ]; then
-            echo "📄 Found docker-compose.yml"
+            echo "Found docker-compose.yml"
           else
-            echo "❌ No docker-compose.yml found"
+            echo "No docker-compose.yml found"
             exit 1
           fi
 
-          # Start services with docker compose (new syntax)
+          # Start services with docker compose
           docker compose up -d --build
 
           # Wait for services to be ready
-          echo "⏳ Waiting for services to start..."
+          echo "Waiting for services to start..."
           sleep 45
 
           # Check running containers
           docker compose ps
 
           # Check logs
-          echo "📋 Application logs:"
+          echo "Application logs:"
           docker compose logs web | head -20
 
           # Test if app is running
           for i in {1..20}; do
             if curl -f http://localhost:5000 >/dev/null 2>&1; then
-              echo "✅ Application is running on port 5000"
-              echo "📄 Homepage preview:"
+              echo "Application is running on port 5000"
+              echo "Homepage preview:"
               curl -s http://localhost:5000 | head -10
               break
             fi
-            echo "⏳ Waiting for app... ($i/20)"
+            echo "Waiting for app... ($i/20)"
             sleep 5
           done
 
           # Show detailed logs if app is not responding
           if ! curl -f http://localhost:5000 >/dev/null 2>&1; then
-            echo "❌ Application not responding, showing detailed logs:"
+            echo "Application not responding, showing detailed logs:"
             echo "=== WEB CONTAINER LOGS ==="
             docker compose logs web
             echo "=== DB CONTAINER LOGS ==="
@@ -142,15 +136,15 @@ jobs:
             exit 1
           fi
 
-      - name: 🌐 DAST - Dynamic Application Security Testing
+      - name: DAST - Dynamic Application Security Testing
         run: |
-          echo "🌐 Running DAST Scanning with OWASP ZAP..."
+          echo "Running DAST Scanning with OWASP ZAP..."
           mkdir -p reports
 
           # Fix permissions for ZAP
           chmod 777 reports
 
-          # Run OWASP ZAP baseline scan with CORRECT parameters
+          # Run OWASP ZAP baseline scan
           docker run --rm \
             --network host \
             -v ${{ github.workspace }}/reports:/zap/wrk:rw \
@@ -174,15 +168,15 @@ jobs:
           # Parse results from the log output
           echo "=== Parsing DAST Results ==="
           if [ -f "reports/dast-output.log" ] && grep -q "WARN-NEW\|FAIL-NEW" reports/dast-output.log; then
-            echo "📊 DAST Issues Found:"
+            echo "DAST Issues Found:"
             grep "WARN-NEW\|FAIL-NEW" reports/dast-output.log | head -10
             
             # Count critical/high issues
             FAIL_COUNT=$(grep -c "FAIL-NEW:" reports/dast-output.log || echo "0")
             WARN_COUNT=$(grep -c "WARN-NEW:" reports/dast-output.log || echo "0")
             
-            echo "🚨 FAIL Issues: $FAIL_COUNT"
-            echo "⚠️ WARN Issues: $WARN_COUNT"
+            echo "FAIL Issues: $FAIL_COUNT"
+            echo "WARN Issues: $WARN_COUNT"
             
             # Move ZAP reports to root if they exist
             [ -f "reports/dast-results.json" ] && cp reports/dast-results.json . || echo "No JSON report from ZAP"
@@ -202,19 +196,19 @@ jobs:
             fi
             
             # Show sample of issues found
-            echo "📋 Sample Issues Found:"
+            echo "Sample Issues Found:"
             grep "WARN-NEW\|FAIL-NEW" reports/dast-output.log | head -5
           else
-            echo "✅ No major issues found in log output"
+            echo "No major issues found in log output"
             echo '{"summary": {"fail_issues": 0, "warn_issues": 0}, "scan_status": "completed"}' > dast-results.json
           fi
 
           echo "DAST scan completed"
 
-      - name: 🛑 Stop Application
+      - name: Stop Application
         if: always()
         run: |
-          echo "🛑 Stopping Docker Compose services..."
+          echo "Stopping Docker Compose services..."
           docker compose down || true
           docker compose down --volumes || true
 
@@ -222,7 +216,7 @@ jobs:
           docker container prune -f || true
 
       # MISCONFIGURATION SCANNING
-      - name: 🔧 Install Trivy for Misconfiguration Scanning
+      - name: Install Trivy for Misconfiguration Scanning
         run: |
           sudo apt-get update
           sudo apt-get install wget apt-transport-https gnupg lsb-release -y
@@ -231,22 +225,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install trivy jq -y
 
-      - name: 🔧 Misconfiguration Scanning
+      - name: Misconfiguration Scanning
         run: |
-          echo "🔧 Running Misconfiguration Scanning..."
+          echo "Running Misconfiguration Scanning..."
           trivy config . --format json --output misconfig-results.json --quiet
           trivy config . --format table > misconfig-summary.txt 2>&1
           echo "Misconfiguration scan completed"
 
       # CHECK FOR CRITICAL VULNERABILITIES
-      - name: 🚨 Check for Critical Issues
+      - name: Check for Critical Issues
         run: |
           echo "Checking for critical vulnerabilities..."
           CRITICAL_FOUND=false
 
           # Check GitLeaks results
           if [ -f "results.json" ] && [ -s "results.json" ]; then
-            echo "❌ CRITICAL: Secrets detected!"
+            echo "CRITICAL: Secrets detected!"
             echo "secrets=true" >> $GITHUB_ENV
             CRITICAL_FOUND=true
           fi
@@ -255,7 +249,7 @@ jobs:
           if grep -q "vulnerabilities reported" sca-results.txt; then
             VULN_COUNT=$(grep -o "[0-9]\+ vulnerabilities reported" sca-results.txt | head -1 | grep -o "^[0-9]\+")
             if [ "$VULN_COUNT" -gt 0 ]; then
-              echo "❌ CRITICAL: $VULN_COUNT vulnerabilities found in dependencies!"
+              echo "CRITICAL: $VULN_COUNT vulnerabilities found in dependencies!"
               echo "vulnerabilities=true" >> $GITHUB_ENV
               echo "vuln_count=$VULN_COUNT" >> $GITHUB_ENV
               CRITICAL_FOUND=true
@@ -270,23 +264,23 @@ jobs:
             echo "sast_high_count=$HIGH_SAST" >> $GITHUB_ENV
             echo "sast_total_count=$TOTAL_SAST" >> $GITHUB_ENV
             if [ "$HIGH_SAST" -gt 0 ]; then
-              echo "❌ CRITICAL: $HIGH_SAST high severity SAST issues found!"
+              echo "CRITICAL: $HIGH_SAST high severity SAST issues found!"
               echo "sast_critical=true" >> $GITHUB_ENV
               CRITICAL_FOUND=true
             fi
           fi
 
-          # Check DAST results - IMPROVED PARSING
+          # Check DAST results
           if [ -f "dast-results.json" ]; then
-            echo "📊 Checking DAST JSON results..."
+            echo "Checking DAST JSON results..."
             
-            # Validate JSON format (show only first few lines)
+            # Validate JSON format
             if jq empty dast-results.json 2>/dev/null; then
-              echo "✅ Valid JSON format detected"
-              echo "📄 JSON Summary:"
+              echo "Valid JSON format detected"
+              echo "JSON Summary:"
               jq -r '."@programName", ."@version", .site[0]."@name"' dast-results.json 2>/dev/null || echo "Basic info extracted"
             else
-              echo "❌ Invalid JSON format"
+              echo "Invalid JSON format"
             fi
             
             # Try to parse ZAP JSON format for alerts
@@ -294,51 +288,51 @@ jobs:
             CRITICAL_ALERTS=$(jq -r '.site[]?.alerts[]? | select(.riskcode == "4") | .riskcode' dast-results.json 2>/dev/null | wc -l || echo "0")
             TOTAL_DAST=$((HIGH_ALERTS + CRITICAL_ALERTS))
             
-            echo "🔍 DAST Analysis: High=$HIGH_ALERTS, Critical=$CRITICAL_ALERTS"
+            echo "DAST Analysis: High=$HIGH_ALERTS, Critical=$CRITICAL_ALERTS"
             echo "dast_critical_count=$CRITICAL_ALERTS" >> $GITHUB_ENV
             echo "dast_high_count=$HIGH_ALERTS" >> $GITHUB_ENV
             echo "dast_total_count=$TOTAL_DAST" >> $GITHUB_ENV
             
             # Show sample alerts if found
             if [ "$HIGH_ALERTS" -gt 0 ] || [ "$CRITICAL_ALERTS" -gt 0 ]; then
-              echo "📋 Sample DAST Issues:"
+              echo "Sample DAST Issues:"
               jq -r '.site[]?.alerts[]? | select(.riskcode == "3" or .riskcode == "4") | "- " + .name + " (Risk: " + .riskdesc + ")"' dast-results.json 2>/dev/null | head -3 || echo "Could not extract alert details"
             fi
             
             if [ "$CRITICAL_ALERTS" -gt 0 ] || [ "$HIGH_ALERTS" -gt 0 ]; then
-              echo "❌ CRITICAL: $((CRITICAL_ALERTS + HIGH_ALERTS)) critical/high DAST issues found!"
+              echo "CRITICAL: $((CRITICAL_ALERTS + HIGH_ALERTS)) critical/high DAST issues found!"
               echo "dast_critical=true" >> $GITHUB_ENV
               CRITICAL_FOUND=true
             else
-              echo "✅ No critical DAST issues found"
+              echo "No critical DAST issues found"
             fi
           elif [ -f "reports/dast-results.html" ]; then
-            echo "📊 Checking DAST HTML results as fallback..."
+            echo "Checking DAST HTML results as fallback..."
             # Parse HTML for High/Critical alerts
             HIGH_HTML=$(grep -c "Risk Level.*High" reports/dast-results.html || echo "0")
             CRITICAL_HTML=$(grep -c "Risk Level.*Critical" reports/dast-results.html || echo "0")
             
-            echo "🔍 DAST HTML Analysis: High=$HIGH_HTML, Critical=$CRITICAL_HTML"
+            echo "DAST HTML Analysis: High=$HIGH_HTML, Critical=$CRITICAL_HTML"
             echo "dast_critical_count=$CRITICAL_HTML" >> $GITHUB_ENV
             echo "dast_high_count=$HIGH_HTML" >> $GITHUB_ENV
             echo "dast_total_count=$((HIGH_HTML + CRITICAL_HTML))" >> $GITHUB_ENV
             
             if [ "$CRITICAL_HTML" -gt 0 ] || [ "$HIGH_HTML" -gt 0 ]; then
-              echo "❌ CRITICAL: $((CRITICAL_HTML + HIGH_HTML)) critical/high DAST issues found in HTML!"
+              echo "CRITICAL: $((CRITICAL_HTML + HIGH_HTML)) critical/high DAST issues found in HTML!"
               echo "dast_critical=true" >> $GITHUB_ENV
               CRITICAL_FOUND=true
             fi
           else
-            echo "⚠️ No DAST results found"
+            echo "No DAST results found"
             echo "dast_critical_count=0" >> $GITHUB_ENV
             echo "dast_high_count=0" >> $GITHUB_ENV
             echo "dast_total_count=0" >> $GITHUB_ENV
           fi
 
           # Check Misconfiguration results
-          echo "🔧 Checking Misconfiguration results..."
+          echo "Checking Misconfiguration results..."
           if [ -f "misconfig-results.json" ]; then
-            echo "📄 Misconfiguration file found, analyzing..."
+            echo "Misconfiguration file found, analyzing..."
             
             # Check if file has content
             if [ -s "misconfig-results.json" ]; then
@@ -348,36 +342,36 @@ jobs:
                 HIGH_MISCONFIG=$(jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "HIGH") | .Severity' misconfig-results.json 2>/dev/null | wc -l || echo "0")
                 TOTAL_CRITICAL_HIGH=$((CRITICAL_MISCONFIG + HIGH_MISCONFIG))
                 
-                echo "🔍 Misconfiguration Analysis: Critical=$CRITICAL_MISCONFIG, High=$HIGH_MISCONFIG"
+                echo "Misconfiguration Analysis: Critical=$CRITICAL_MISCONFIG, High=$HIGH_MISCONFIG"
                 echo "misconfig_critical_count=$CRITICAL_MISCONFIG" >> $GITHUB_ENV
                 echo "misconfig_high_count=$HIGH_MISCONFIG" >> $GITHUB_ENV
                 echo "misconfig_total_count=$TOTAL_CRITICAL_HIGH" >> $GITHUB_ENV
                 
                 if [ "$TOTAL_CRITICAL_HIGH" -gt 0 ]; then
-                  echo "❌ CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
+                  echo "CRITICAL: $TOTAL_CRITICAL_HIGH critical/high misconfigurations found!"
                   echo "misconfig_critical=true" >> $GITHUB_ENV
                   CRITICAL_FOUND=true
                   
                   # Show sample misconfigurations
-                  echo "📋 Sample Misconfiguration Issues:"
+                  echo "Sample Misconfiguration Issues:"
                   jq -r '.Results[]?.Misconfigurations[]? | select(.Severity == "CRITICAL" or .Severity == "HIGH") | "- " + .Title + " (" + .Severity + ")"' misconfig-results.json 2>/dev/null | head -3 || echo "Could not extract details"
                 else
-                  echo "✅ No critical misconfiguration issues found"
+                  echo "No critical misconfiguration issues found"
                 fi
               else
-                echo "❌ Invalid JSON format in misconfiguration results"
+                echo "Invalid JSON format in misconfiguration results"
                 echo "misconfig_critical_count=0" >> $GITHUB_ENV
                 echo "misconfig_high_count=0" >> $GITHUB_ENV
                 echo "misconfig_total_count=0" >> $GITHUB_ENV
               fi
             else
-              echo "⚠️ Misconfiguration file is empty"
+              echo "Misconfiguration file is empty"
               echo "misconfig_critical_count=0" >> $GITHUB_ENV
               echo "misconfig_high_count=0" >> $GITHUB_ENV
               echo "misconfig_total_count=0" >> $GITHUB_ENV
             fi
           else
-            echo "❌ No misconfiguration results file found"
+            echo "No misconfiguration results file found"
             echo "misconfig_critical_count=0" >> $GITHUB_ENV
             echo "misconfig_high_count=0" >> $GITHUB_ENV
             echo "misconfig_total_count=0" >> $GITHUB_ENV
@@ -387,17 +381,17 @@ jobs:
           if [ "$CRITICAL_FOUND" = true ]; then
             echo "critical_issues_found=true" >> $GITHUB_ENV
           else
-            echo "✅ No critical security issues found!"
+            echo "No critical security issues found!"
             echo "critical_issues_found=false" >> $GITHUB_ENV
           fi
 
-      # GITHUB ISSUES INTEGRATION (BONUS)
-      - name: 📢Create GitHub Issue for Critical Findings
+      # GITHUB ISSUES INTEGRATION
+      - name: Create GitHub Issue for Critical Findings
         if: env.critical_issues_found == 'true'
         run: |
           echo "Creating GitHub issue for critical security findings..."
 
-          # Prepare issue details safely
+          # Prepare issue details
           REPO_NAME="${{ github.repository }}"
           RUN_ID="${{ github.run_id }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -406,7 +400,7 @@ jobs:
           CURRENT_DATE=$(date '+%Y-%m-%d %H:%M:%S UTC')
 
           # Build issue body
-          ISSUE_BODY="## 🚨 Critical Security Vulnerabilities Detected
+          ISSUE_BODY="## Critical Security Vulnerabilities Detected
 
           **Repository:** ${REPO_NAME}
           **Pipeline Run:** ${RUN_ID}
@@ -414,59 +408,59 @@ jobs:
           **Triggered by:** ${ACTOR}
           **Scan Date:** ${CURRENT_DATE}
 
-          ### 📋 Issues Found:
+          ### Issues Found:
           "
 
           # Add specific issue details
           if [ "${{ env.secrets }}" = "true" ]; then
             ISSUE_BODY="${ISSUE_BODY}
-          - 🕵️ **Secrets Detected** - Hardcoded credentials found in repository"
+          - **Secrets Detected** - Hardcoded credentials found in repository"
           fi
 
           if [ "${{ env.vulnerabilities }}" = "true" ]; then
             VULN_COUNT="${{ env.vuln_count }}"
             ISSUE_BODY="${ISSUE_BODY}
-          - 📦 **SCA Issues** - ${VULN_COUNT} vulnerable dependencies detected"
+          - **SCA Issues** - ${VULN_COUNT} vulnerable dependencies detected"
           fi
 
           if [ "${{ env.sast_critical }}" = "true" ]; then
             SAST_COUNT="${{ env.sast_high_count }}"
             ISSUE_BODY="${ISSUE_BODY}
-          - 🛡️ **SAST Issues** - ${SAST_COUNT} high severity code vulnerabilities"
+          - **SAST Issues** - ${SAST_COUNT} high severity code vulnerabilities"
           fi
 
           if [ "${{ env.dast_critical }}" = "true" ]; then
             DAST_COUNT="${{ env.dast_total_count }}"
             ISSUE_BODY="${ISSUE_BODY}
-          - 🌐 **DAST Issues** - ${DAST_COUNT} critical runtime vulnerabilities"
+          - **DAST Issues** - ${DAST_COUNT} critical runtime vulnerabilities"
           fi
 
           if [ "${{ env.misconfig_critical }}" = "true" ]; then
             MISCONFIG_COUNT="${{ env.misconfig_total_count }}"
             ISSUE_BODY="${ISSUE_BODY}
-          - 🔧 **Misconfiguration** - ${MISCONFIG_COUNT} critical configuration issues"
+          - **Misconfiguration** - ${MISCONFIG_COUNT} critical configuration issues"
           fi
 
           ISSUE_BODY="${ISSUE_BODY}
 
-          ### 🔗 Links:
-          - [📊 View Pipeline Results](${RUN_URL})
-          - [📁 Download Security Reports](${RUN_URL}#artifacts)
+          ### Links:
+          - [View Pipeline Results](${RUN_URL})
+          - [Download Security Reports](${RUN_URL}#artifacts)
 
-          ### ⚠️ Action Required:
+          ### Action Required:
           1. Review detailed security reports in pipeline artifacts
           2. Fix all critical vulnerabilities before deployment
           3. Re-run security pipeline after fixes
           4. Close this issue once all vulnerabilities are resolved
 
           ---
-          **🤖 This issue was created automatically by the DevSecOps Security Pipeline**
+          **This issue was created automatically by the DevSecOps Security Pipeline**
           "
 
           # Create JSON payload file
           cat > github_issue.json << 'EOF'
           {
-            "title": "🚨 Critical Security Vulnerabilities Detected - CURRENT_DATE_PLACEHOLDER",
+            "title": "Critical Security Vulnerabilities Detected - CURRENT_DATE_PLACEHOLDER",
             "body": "ISSUE_BODY_PLACEHOLDER",
             "labels": ["security", "critical", "vulnerability", "automated"]
           }
@@ -480,10 +474,10 @@ jobs:
 
           # Create the final JSON with proper escaping
           jq --arg body "$(cat issue_body.txt)" --arg date "${CURRENT_DATE}" \
-            '.body = $body | .title = ("🚨 Critical Security Vulnerabilities - " + $date)' \
+            '.body = $body | .title = ("Critical Security Vulnerabilities - " + $date)' \
             github_issue.json > final_issue.json
 
-          echo "📝 GitHub issue payload created:"
+          echo "GitHub issue payload created:"
           head -20 final_issue.json
 
           # Create the issue via GitHub API
@@ -495,35 +489,35 @@ jobs:
             -d @final_issue.json \
             "https://api.github.com/repos/${{ github.repository }}/issues")
 
-          echo "📊 GitHub API Response Code: ${HTTP_RESPONSE}"
+          echo "GitHub API Response Code: ${HTTP_RESPONSE}"
 
           if [ "${HTTP_RESPONSE}" = "201" ]; then
-            echo "✅ GitHub issue created successfully!"
+            echo "GitHub issue created successfully!"
             ISSUE_URL=$(jq -r '.html_url' github_response.txt 2>/dev/null || echo "N/A")
-            echo "🔗 Issue URL: ${ISSUE_URL}"
+            echo "Issue URL: ${ISSUE_URL}"
             echo "github_issue_created=true" >> $GITHUB_ENV
             echo "github_issue_url=${ISSUE_URL}" >> $GITHUB_ENV
           else
-            echo "❌ Failed to create GitHub issue"
-            echo "📄 Response details:"
+            echo "Failed to create GitHub issue"
+            echo "Response details:"
             cat github_response.txt || echo "No response file"
             echo "github_issue_created=false" >> $GITHUB_ENV
 
             # Don't fail the pipeline
-            echo "⚠️ Continuing pipeline despite GitHub issue creation failure..."
+            echo "Continuing pipeline despite GitHub issue creation failure..."
           fi
 
           # Cleanup
           rm -f github_issue.json final_issue.json issue_body.txt github_response.txt
 
-          echo "✅ GitHub issue creation process completed"
+          echo "GitHub issue creation process completed"
 
-      - name: 📢 Send Discord Alert for Critical Issues
+      - name: Send Discord Alert for Critical Issues
         if: env.critical_issues_found == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          echo "📢 Sending critical vulnerability alert to Discord..."
+          echo "Sending critical vulnerability alert to Discord..."
 
           # Prepare variables
           REPO_NAME="${{ github.repository }}"
@@ -538,20 +532,20 @@ jobs:
           ISSUE_DETAILS=""
 
           if [ "${{ env.secrets }}" = "true" ]; then
-            ISSUE_DETAILS="${ISSUE_DETAILS}🕵️ **Secrets Detected** - Hardcoded credentials found in repository\n"
+            ISSUE_DETAILS="${ISSUE_DETAILS}**Secrets Detected** - Hardcoded credentials found in repository\n"
             TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
           fi
 
           if [ "${{ env.vulnerabilities }}" = "true" ]; then
             VULN_COUNT="${{ env.vuln_count }}"
-            ISSUE_DETAILS="${ISSUE_DETAILS}📦 **SCA Issues** - ${VULN_COUNT:-Unknown} vulnerable dependencies\n"
+            ISSUE_DETAILS="${ISSUE_DETAILS}**SCA Issues** - ${VULN_COUNT:-Unknown} vulnerable dependencies\n"
             TOTAL_ISSUES=$((TOTAL_ISSUES + ${VULN_COUNT:-0}))
           fi
 
           if [ "${{ env.sast_critical }}" = "true" ]; then
             SAST_HIGH="${{ env.sast_high_count }}"
             SAST_TOTAL="${{ env.sast_total_count }}"
-            ISSUE_DETAILS="${ISSUE_DETAILS}🛡️ **SAST Issues** - ${SAST_HIGH:-0} high severity, ${SAST_TOTAL:-0} total code vulnerabilities\n"
+            ISSUE_DETAILS="${ISSUE_DETAILS}**SAST Issues** - ${SAST_HIGH:-0} high severity, ${SAST_TOTAL:-0} total code vulnerabilities\n"
             TOTAL_ISSUES=$((TOTAL_ISSUES + ${SAST_HIGH:-0}))
           fi
 
@@ -559,7 +553,7 @@ jobs:
             DAST_CRITICAL="${{ env.dast_critical_count }}"
             DAST_HIGH="${{ env.dast_high_count }}"
             DAST_TOTAL="${{ env.dast_total_count }}"
-            ISSUE_DETAILS="${ISSUE_DETAILS}🌐 **DAST Issues** - ${DAST_CRITICAL:-0} critical, ${DAST_HIGH:-0} high runtime vulnerabilities\n"
+            ISSUE_DETAILS="${ISSUE_DETAILS}**DAST Issues** - ${DAST_CRITICAL:-0} critical, ${DAST_HIGH:-0} high runtime vulnerabilities\n"
             TOTAL_ISSUES=$((TOTAL_ISSUES + ${DAST_CRITICAL:-0} + ${DAST_HIGH:-0}))
           fi
 
@@ -567,7 +561,7 @@ jobs:
             MISCONFIG_CRITICAL="${{ env.misconfig_critical_count }}"
             MISCONFIG_HIGH="${{ env.misconfig_high_count }}"
             MISCONFIG_TOTAL="${{ env.misconfig_total_count }}"
-            ISSUE_DETAILS="${ISSUE_DETAILS}🔧 **Misconfiguration** - ${MISCONFIG_CRITICAL:-0} critical, ${MISCONFIG_HIGH:-0} high configuration issues\n"
+            ISSUE_DETAILS="${ISSUE_DETAILS}**Misconfiguration** - ${MISCONFIG_CRITICAL:-0} critical, ${MISCONFIG_HIGH:-0} high configuration issues\n"
             TOTAL_ISSUES=$((TOTAL_ISSUES + ${MISCONFIG_TOTAL:-0}))
           fi
 
@@ -576,42 +570,42 @@ jobs:
           {
             "embeds": [
               {
-                "title": "🚨 CRITICAL SECURITY ALERT",
+                "title": "CRITICAL SECURITY ALERT",
                 "description": "**Critical vulnerabilities detected in Vuln Bank repository!**",
                 "color": 15158332,
                 "fields": [
                   {
-                    "name": "📁 Repository",
+                    "name": "Repository",
                     "value": "\`$REPO_NAME\`",
                     "inline": true
                   },
                   {
-                    "name": "👤 Triggered By",
+                    "name": "Triggered By",
                     "value": "\`$ACTOR\`",
                     "inline": true
                   },
                   {
-                    "name": "🔗 Commit",
+                    "name": "Commit",
                     "value": "[\`$COMMIT_SHORT\`]($COMMIT_URL)",
                     "inline": true
                   },
                   {
-                    "name": "🚨 Total Issues Found",
+                    "name": "Total Issues Found",
                     "value": "**$TOTAL_ISSUES** critical security issues detected",
                     "inline": false
                   },
                   {
-                    "name": "📋 Security Issues Breakdown",
+                    "name": "Security Issues Breakdown",
                     "value": "$ISSUE_DETAILS",
                     "inline": false
                   },
                   {
-                    "name": "⚠️ IMMEDIATE ACTION REQUIRED",
-                    "value": "• [📊 View Full Pipeline Results]($ACTION_URL)\n• 📁 Download security reports from artifacts\n• 🚫 **DO NOT DEPLOY** until all issues are resolved\n• 🔧 Review and fix vulnerabilities immediately",
+                    "name": "IMMEDIATE ACTION REQUIRED",
+                    "value": "• [View Full Pipeline Results]($ACTION_URL)\n• Download security reports from artifacts\n• **DO NOT DEPLOY** until all issues are resolved\n• Review and fix vulnerabilities immediately",
                     "inline": false
                   },
                   {
-                    "name": "📊 Available Reports",
+                    "name": "Available Reports",
                     "value": "• Secret Scanning Results\n• SCA Vulnerability Report\n• SAST Code Analysis\n• DAST Runtime Testing\n• Misconfiguration Audit",
                     "inline": false
                   }
@@ -626,11 +620,11 @@ jobs:
           }
           EOF
 
-          echo "📝 Discord payload created:"
-          cat discord_payload.json | jq '.' || echo "JSON payload created (jq not available for formatting)"
+          echo "Discord payload created:"
+          cat discord_payload.json | jq '.' || echo "JSON payload created"
 
           # Send notification to Discord
-          echo "📤 Sending notification to Discord..."
+          echo "Sending notification to Discord..."
 
           HTTP_RESPONSE=$(curl -s -o discord_response.txt -w "%{http_code}" \
             -H "Content-Type: application/json" \
@@ -638,30 +632,30 @@ jobs:
             -d @discord_payload.json \
             "$DISCORD_WEBHOOK_URL")
 
-          echo "📊 Discord API Response Code: $HTTP_RESPONSE"
+          echo "Discord API Response Code: $HTTP_RESPONSE"
 
           if [ "$HTTP_RESPONSE" = "204" ]; then
-            echo "✅ Discord notification sent successfully!"
-            echo "🎯 Security team has been alerted via Discord"
+            echo "Discord notification sent successfully!"
+            echo "Security team has been alerted via Discord"
           else
-            echo "❌ Failed to send Discord notification"
-            echo "📄 Response details:"
+            echo "Failed to send Discord notification"
+            echo "Response details:"
             cat discord_response.txt || echo "No response file"
             
             # Don't fail the pipeline if Discord fails, just warn
-            echo "⚠️ Continuing pipeline despite Discord notification failure..."
-            echo "💡 Please check your Discord webhook URL in repository secrets"
+            echo "Continuing pipeline despite Discord notification failure..."
+            echo "Please check your Discord webhook URL in repository secrets"
           fi
 
           # Also create a simple backup notification file
-          echo "🚨 CRITICAL SECURITY ALERT - $TOTAL_ISSUES issues found in $REPO_NAME by $ACTOR" > notification_backup.txt
-          echo "🔗 Pipeline: $ACTION_URL" >> notification_backup.txt
-          echo "📊 Commit: $COMMIT_URL" >> notification_backup.txt
+          echo "CRITICAL SECURITY ALERT - $TOTAL_ISSUES issues found in $REPO_NAME by $ACTOR" > notification_backup.txt
+          echo "Pipeline: $ACTION_URL" >> notification_backup.txt
+          echo "Commit: $COMMIT_URL" >> notification_backup.txt
 
-          echo "✅ Discord notification process completed"
+          echo "Discord notification process completed"
 
       # SAVE REPORTS
-      - name: 📄 Upload Security Reports
+      - name: Upload Security Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -681,33 +675,33 @@ jobs:
             notification_backup.txt
 
       # FAIL IF CRITICAL ISSUES FOUND
-      - name: ⚠️ Fail Build on Critical Issues
+      - name: Fail Build on Critical Issues
         if: env.secrets == 'true' || env.vulnerabilities == 'true' || env.sast_critical == 'true' || env.dast_critical == 'true' || env.misconfig_critical == 'true'
         run: |
-          echo "🚨 BUILD FAILED: Critical security issues detected!"
-          echo "🔍 Check the artifacts for detailed reports"
-          echo "📧 Security team has been notified via Discord"
-          echo "📊 Summary of issues found:"
-          [ "${{ env.secrets }}" = "true" ] && echo "  - 🕵️ Secrets detected in code"
-          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - 📦 ${{ env.vuln_count }} vulnerable dependencies"
-          [ "${{ env.sast_critical }}" = "true" ] && echo "  - 🛡️ ${{ env.sast_high_count }} critical SAST issues"
-          [ "${{ env.dast_critical }}" = "true" ] && echo "  - 🌐 ${{ env.dast_total_count }} critical DAST issues"
-          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - 🔧 ${{ env.misconfig_total_count }} critical misconfigurations"
+          echo "BUILD FAILED: Critical security issues detected!"
+          echo "Check the artifacts for detailed reports"
+          echo "Security team has been notified via Discord"
+          echo "Summary of issues found:"
+          [ "${{ env.secrets }}" = "true" ] && echo "  - Secrets detected in code"
+          [ "${{ env.vulnerabilities }}" = "true" ] && echo "  - ${{ env.vuln_count }} vulnerable dependencies"
+          [ "${{ env.sast_critical }}" = "true" ] && echo "  - ${{ env.sast_high_count }} critical SAST issues"
+          [ "${{ env.dast_critical }}" = "true" ] && echo "  - ${{ env.dast_total_count }} critical DAST issues"
+          [ "${{ env.misconfig_critical }}" = "true" ] && echo "  - ${{ env.misconfig_total_count }} critical misconfigurations"
           echo ""
-          echo "🚫 DEPLOYMENT BLOCKED - Fix vulnerabilities before proceeding!"
+          echo "DEPLOYMENT BLOCKED - Fix vulnerabilities before proceeding!"
           exit 1
 
       # SUCCESS MESSAGE
-      - name: ✅ Security Scan Completed Successfully
+      - name: Security Scan Completed Successfully
         if: env.critical_issues_found != 'true'
         run: |
-          echo "🎉 All security scans completed successfully!"
-          echo "✅ No critical security issues found"
-          echo "📊 All scanned areas:"
-          echo "  - 🕵️ Secret Scanning: ✅ Clean"
-          echo "  - 📦 SCA (Dependencies): ✅ No critical vulnerabilities"
-          echo "  - 🛡️ SAST (Code Analysis): ✅ No high-severity issues"
-          echo "  - 🌐 DAST (Runtime Testing): ✅ No critical runtime issues"
-          echo "  - 🔧 Misconfiguration: ✅ No critical misconfigurations"
+          echo "All security scans completed successfully!"
+          echo "No critical security issues found"
+          echo "All scanned areas:"
+          echo "  - Secret Scanning: Clean"
+          echo "  - SCA (Dependencies): No critical vulnerabilities"
+          echo "  - SAST (Code Analysis): No high-severity issues"
+          echo "  - DAST (Runtime Testing): No critical runtime issues"
+          echo "  - Misconfiguration: No critical misconfigurations"
           echo ""
-          echo "🚀 Repository is ready for deployment!"
+          echo "Repository is ready for deployment!"
