@@ -22,48 +22,48 @@ jobs:
         with:
           python-version: "3.11"
 
-      # # SECRET SCANNING
-      # - name: 🕵️ Secret Scanning with GitLeaks
-      #   uses: gitleaks/gitleaks-action@v2
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # SECRET SCANNING - FULL REPOSITORY SCAN (FOR TESTING)
-      - name: 🕵️ Secret Scanning with GitLeaks (Full Scan)
-        run: |
-          echo "🕵️ Running comprehensive secret scanning..."
-
-          # Install GitLeaks manually
-          wget https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
-          tar -xzf gitleaks_8.24.3_linux_x64.tar.gz
-          chmod +x gitleaks
-
-          echo "📁 Scanning entire repository for secrets..."
-
-          # Full repository scan (tidak hanya commit baru)
-          ./gitleaks detect \
-            --source . \
-            --verbose \
-            --report-format json \
-            --report-path results.json \
-            --no-banner || true
-
-          # Show detailed results
-          if [ -f "results.json" ] && [ -s "results.json" ]; then
-            echo "🚨 SECRETS FOUND IN REPOSITORY!"
-            echo "📊 Total secrets detected:"
-            cat results.json | jq '. | length' || echo "Multiple secrets found"
-            
-            echo "📋 Detailed findings:"
-            cat results.json | jq -r '.[] | "📁 File: " + .File + "\n🔢 Line: " + (.StartLine|tostring) + "\n🔍 Secret Type: " + .RuleID + "\n🔗 Match: " + .Match + "\n---"' || cat results.json
-            
-            echo "secrets=true" >> $GITHUB_ENV
-          else
-            echo "✅ No secrets detected in full repository scan"
-            echo "secrets=false" >> $GITHUB_ENV
-          fi
+      # SECRET SCANNING
+      - name: 🕵️ Secret Scanning with GitLeaks
+        uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # # SECRET SCANNING - FULL REPOSITORY SCAN (FOR TESTING)
+      # - name: 🕵️ Secret Scanning with GitLeaks (Full Scan)
+      #   run: |
+      #     echo "🕵️ Running comprehensive secret scanning..."
+
+      #     # Install GitLeaks manually
+      #     wget https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+      #     tar -xzf gitleaks_8.24.3_linux_x64.tar.gz
+      #     chmod +x gitleaks
+
+      #     echo "📁 Scanning entire repository for secrets..."
+
+      #     # Full repository scan (tidak hanya commit baru)
+      #     ./gitleaks detect \
+      #       --source . \
+      #       --verbose \
+      #       --report-format json \
+      #       --report-path results.json \
+      #       --no-banner || true
+
+      #     # Show detailed results
+      #     if [ -f "results.json" ] && [ -s "results.json" ]; then
+      #       echo "🚨 SECRETS FOUND IN REPOSITORY!"
+      #       echo "📊 Total secrets detected:"
+      #       cat results.json | jq '. | length' || echo "Multiple secrets found"
+
+      #       echo "📋 Detailed findings:"
+      #       cat results.json | jq -r '.[] | "📁 File: " + .File + "\n🔢 Line: " + (.StartLine|tostring) + "\n🔍 Secret Type: " + .RuleID + "\n🔗 Match: " + .Match + "\n---"' || cat results.json
+
+      #       echo "secrets=true" >> $GITHUB_ENV
+      #     else
+      #       echo "✅ No secrets detected in full repository scan"
+      #       echo "secrets=false" >> $GITHUB_ENV
+      #     fi
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # SCA SCANNING
       - name: 📦 Install Safety for SCA
